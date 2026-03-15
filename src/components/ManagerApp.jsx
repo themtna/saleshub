@@ -1,21 +1,31 @@
 import { useState, useMemo } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Input, OrderItem, Toast, Modal, Empty, LiveDot } from './ui'
+import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Input, Toast, Modal, Empty, LiveDot } from './ui'
 
-export default function ManagerApp({ profile, orders, teams, onCreateTeam, onSignOut }) {
+export default function ManagerApp({ profile, orders, teams, onCreateTeam, onFetchByDate, onSignOut }) {
   const [tab, setTab] = useState('dashboard')
   const [dateFilter, setDateFilter] = useState('')
+  const [dateOrders, setDateOrders] = useState(null)
   const [toast, setToast] = useState(null)
   const [showTeamModal, setShowTeamModal] = useState(false)
   const [newTeamName, setNewTeamName] = useState('')
 
-  // ── สถิติ ────────────────────────
-  const today = orders.filter(o => sameDay(o.created_at, new Date()))
-  const todaySum = today.reduce((s, o) => s + (o.total_amount || 0), 0)
-  const weekSum = orders.filter(o => withinDays(o.created_at, 7)).reduce((s, o) => s + (o.total_amount || 0), 0)
-  const monthSum = orders.filter(o => thisMonth(o.created_at)).reduce((s, o) => s + (o.total_amount || 0), 0)
+  const handleDateChange = async (date) => {
+    setDateFilter(date)
+    if (date && onFetchByDate) {
+      const data = await onFetchByDate(date)
+      setDateOrders(data)
+    } else {
+      setDateOrders(null)
+    }
+  }
 
-  // ── กราฟ 7 วัน ───────────────────
+  const today = orders.filter(o => sameDay(o.created_at, new Date()))
+  const todaySum = today.reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
+  const todayCod = today.reduce((s, o) => s + (parseFloat(o.cod_amount) || 0), 0)
+  const weekSum = orders.filter(o => withinDays(o.created_at, 7)).reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
+  const monthSum = orders.filter(o => thisMonth(o.created_at)).reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
+
   const chart7 = useMemo(() => {
     const arr = []
     for (let i = 6; i >= 0; i--) {
@@ -23,48 +33,37 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onSig
       const dayOrd = orders.filter(o => sameDay(o.created_at, d))
       arr.push({
         date: fmtDate(d),
-        ยอดขาย: dayOrd.reduce((s, o) => s + (o.total_amount || 0), 0),
+        ยอดขาย: dayOrd.reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0),
+        ออเดอร์: dayOrd.length,
       })
     }
     return arr
   }, [orders])
 
-  // ── ข้อมูลทีม ────────────────────
   const teamStats = useMemo(() =>
     teams.map(t => ({
       ...t,
-      sales: orders.filter(o => o.team_id === t.id && thisMonth(o.created_at)).reduce((s, o) => s + (o.total_amount || 0), 0),
+      sales: orders.filter(o => o.team_id === t.id && thisMonth(o.created_at)).reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0),
       count: orders.filter(o => o.team_id === t.id && thisMonth(o.created_at)).length,
     })).sort((a, b) => b.sales - a.sales)
   , [teams, orders])
 
-  const dateOrders = dateFilter ? orders.filter(o => sameDay(o.created_at, dateFilter)) : null
   const displayOrders = dateOrders || orders.slice(0, 60)
 
   const handleCreateTeam = async () => {
     const n = newTeamName.trim()
     if (!n) return
     const { error } = await onCreateTeam(n)
-    if (error) {
-      setToast(`❌ ${error.message}`)
-    } else {
-      setToast(`✅ สร้าง "${n}" สำเร็จ`)
-      setNewTeamName('')
-      setShowTeamModal(false)
-    }
+    if (error) { setToast(`❌ ${error.message}`) } else { setToast(`✅ สร้าง "${n}" สำเร็จ`); setNewTeamName(''); setShowTeamModal(false) }
     setTimeout(() => setToast(null), 2500)
   }
 
-  const tooltipStyle = {
-    background: 'rgba(10,14,26,0.96)', border: `1px solid ${T.border}`,
-    borderRadius: 12, fontFamily: T.font, fontSize: 13,
-  }
+  const tooltipStyle = { background: 'rgba(10,14,26,0.96)', border: `1px solid ${T.border}`, borderRadius: 12, fontFamily: T.font, fontSize: 13 }
 
   return (
     <div style={{ fontFamily: T.font, minHeight: '100vh', background: T.bg, color: T.text, paddingBottom: 40 }}>
       <Toast message={toast} />
 
-      {/* Header */}
       <div style={{
         ...glass, borderRadius: 0, padding: '14px 18px',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -76,9 +75,7 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onSig
             <span style={{ fontSize: 20, fontWeight: 900 }}>⚡ SalesHub</span>
             <LiveDot />
           </div>
-          <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>
-            {profile.full_name} — หัวหน้า
-          </div>
+          <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{profile.full_name} — หัวหน้า</div>
         </div>
         <button onClick={onSignOut} style={{
           padding: '8px 14px', borderRadius: 8, border: `1px solid ${T.border}`,
@@ -89,7 +86,7 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onSig
       <div style={{ padding: '16px 16px 0' }}>
         <Tabs items={[
           { id: 'dashboard', label: '📈 ภาพรวม' },
-          { id: 'orders', label: '📋 ออเดอร์' },
+          { id: 'orders', label: '📋 รายงานออเดอร์' },
           { id: 'teams', label: '👥 ทีม' },
         ]} active={tab} onChange={setTab} />
       </div>
@@ -97,7 +94,7 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onSig
       <div style={{ padding: 16 }}>
         {tab === 'dashboard' && <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-            <Stat label="วันนี้" value={todaySum} icon="🔥" gradient={T.grad3} sub={`${today.length} ออเดอร์`} />
+            <Stat label="วันนี้" value={todaySum} icon="🔥" gradient={T.grad3} sub={`${today.length} ออเดอร์ · COD ฿${fmt(todayCod)}`} />
             <Stat label="7 วัน" value={weekSum} icon="📊" gradient={T.grad1} />
             <Stat label="เดือนนี้" value={monthSum} icon="🏆" gradient={T.grad2} />
             <Stat label="เฉลี่ย/วัน" value={Math.round(monthSum / Math.max(new Date().getDate(), 1))} icon="📉" gradient={T.grad4} />
@@ -107,78 +104,98 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onSig
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>📈 ยอดขาย 7 วัน</div>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chart7}>
-                <defs>
-                  <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={T.accent} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={T.accent} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+                <defs><linearGradient id="gA" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={T.accent} stopOpacity={0.35}/><stop offset="100%" stopColor={T.accent} stopOpacity={0}/></linearGradient></defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                 <XAxis dataKey="date" stroke={T.textMuted} fontSize={11} tickLine={false} />
-                <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
+                <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`฿${fmt(v)}`, 'ยอดขาย']} />
                 <Area type="monotone" dataKey="ยอดขาย" stroke={T.accent} strokeWidth={2.5} fill="url(#gA)" dot={{ r: 3, fill: T.accent }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
-          <div style={{ ...glass, padding: '18px 14px 10px', marginBottom: 14 }}>
+          <div style={{ ...glass, padding: '18px 14px 10px' }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>🏅 ผลงานทีม (เดือนนี้)</div>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={teamStats}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                 <XAxis dataKey="name" stroke={T.textMuted} fontSize={11} tickLine={false} />
-                <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
+                <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`฿${fmt(v)}`, 'ยอดขาย']} />
-                <defs>
-                  <linearGradient id="gBar" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={T.accent} />
-                    <stop offset="100%" stopColor="#764ba2" />
-                  </linearGradient>
-                </defs>
-                <Bar dataKey="sales" fill="url(#gBar)" radius={[6, 6, 0, 0]} />
+                <defs><linearGradient id="gBar" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={T.accent}/><stop offset="100%" stopColor="#764ba2"/></linearGradient></defs>
+                <Bar dataKey="sales" fill="url(#gBar)" radius={[6,6,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </>}
 
-          <div style={{ ...glass, padding: 18 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📅 ดูยอดขายตามวันที่</div>
+        {/* ──── ORDERS REPORT ──── */}
+        {tab === 'orders' && <>
+          <div style={{ ...glass, padding: 16, marginBottom: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>📅 เลือกวันที่ดูรายงาน</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+              <input type="date" value={dateFilter} onChange={e => handleDateChange(e.target.value)}
                 style={{
                   flex: 1, padding: '11px 14px', borderRadius: T.radiusSm,
                   background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}`,
                   color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none', colorScheme: 'dark',
                 }} />
-              {dateFilter && <Btn sm outline onClick={() => setDateFilter('')}>ล้าง</Btn>}
+              {dateFilter && <Btn sm outline onClick={() => handleDateChange('')}>ล้าง</Btn>}
             </div>
             {dateFilter && dateOrders && (
-              <div style={{ marginTop: 16, padding: 16, borderRadius: T.radiusSm, background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.12)' }}>
-                <div style={{ fontSize: 13, color: T.textDim }}>{fmtDateFull(dateFilter)}</div>
-                <div style={{ fontSize: 30, fontWeight: 900, background: T.grad1, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', margin: '6px 0 4px' }}>
-                  ฿{fmt(dateOrders.reduce((s, o) => s + (o.total_amount || 0), 0))}
+              <div style={{ marginTop: 14, padding: 14, borderRadius: T.radiusSm, background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.12)' }}>
+                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 6 }}>{fmtDateFull(dateFilter)}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: T.textMuted }}>ออเดอร์</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, background: T.grad1, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{dateOrders.length}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: T.textMuted }}>ยอดขาย</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>฿{fmt(dateOrders.reduce((s,o)=>s+(parseFloat(o.sale_price)||0),0))}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: T.textMuted }}>COD</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, background: T.grad3, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>฿{fmt(dateOrders.reduce((s,o)=>s+(parseFloat(o.cod_amount)||0),0))}</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: T.textMuted }}>{dateOrders.length} ออเดอร์</div>
               </div>
             )}
           </div>
+
+          {/* Order list */}
+          <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
+            {displayOrders.length ? displayOrders.map(o => (
+              <div key={o.id} style={{ ...glass, padding: '14px 16px', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div>
+                    <span style={{
+                      display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      background: 'rgba(108,92,231,0.15)', color: '#a29bfe', marginRight: 8,
+                    }}>{o.order_number}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{o.customer_name}</span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{
+                      fontWeight: 800, fontSize: 15,
+                      background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                    }}>฿{fmt(parseFloat(o.sale_price) || 0)}</div>
+                    {parseFloat(o.cod_amount) > 0 && (
+                      <div style={{ fontSize: 11, color: T.textDim }}>COD ฿{fmt(parseFloat(o.cod_amount))}</div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: T.textDim, lineHeight: 1.8 }}>
+                  📱 {o.customer_phone} · 📍 {o.district || '—'} · 📦 {o.sales_channel || '—'}
+                  {o.employee_name && <span> · 👤 {o.employee_name}</span>}
+                  {o.remark && <div style={{ marginTop: 2 }}>💬 {o.remark}</div>}
+                </div>
+              </div>
+            )) : <Empty text="ไม่พบออเดอร์ — เลือกวันที่เพื่อดูรายงาน" />}
+          </div>
         </>}
 
-        {tab === 'orders' && <>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14 }}>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-              style={{
-                flex: 1, padding: '11px 14px', borderRadius: T.radiusSm,
-                background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}`,
-                color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none', colorScheme: 'dark',
-              }} />
-            {dateFilter && <Btn sm outline onClick={() => setDateFilter('')}>✕</Btn>}
-          </div>
-          <div style={{ maxHeight: '65vh', overflowY: 'auto' }}>
-            {displayOrders.length ? displayOrders.map(o => <OrderItem key={o.id} order={o} showWho />) : <Empty text="ไม่พบออเดอร์" />}
-          </div>
-        </>}
-
+        {/* ──── TEAMS ──── */}
         {tab === 'teams' && <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>ทีมทั้งหมด ({teams.length})</div>

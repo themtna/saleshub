@@ -11,8 +11,7 @@ function LoadingScreen() {
   return (
     <div style={{
       fontFamily: T.font, minHeight: '100vh', background: T.bg,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: T.text,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.text,
     }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
@@ -30,9 +29,8 @@ export default function App() {
   const { user, profile, loading: authLoading, signUp, signIn, signOut } = useAuth()
   const { teams, loading: teamsLoading, createTeam } = useTeams()
 
-  // Orders — ถ้าเป็น employee ดึงเฉพาะทีมตัวเอง, manager ดึงทั้งหมด
   const isManager = profile?.role === 'manager'
-  const { orders, createOrder } = useOrders(
+  const { orders, createOrder, fetchOrdersByDate } = useOrders(
     isManager ? {} : { teamId: profile?.team_id }
   )
 
@@ -46,47 +44,25 @@ export default function App() {
     }
   }
 
-  if (authLoading || teamsLoading) {
-    return (
-      <>
-        <GlobalStyles />
-        <LoadingScreen />
-      </>
-    )
-  }
-
-  if (!user || !profile) {
-    return (
-      <>
-        <GlobalStyles />
-        <LoginPage teams={teams} onLogin={handleLogin} />
-      </>
-    )
-  }
+  if (authLoading || teamsLoading) return <><GlobalStyles /><LoadingScreen /></>
+  if (!user || !profile) return <><GlobalStyles /><LoginPage teams={teams} onLogin={handleLogin} /></>
 
   if (isManager) {
     return (
-      <>
-        <GlobalStyles />
+      <><GlobalStyles />
         <ManagerApp
-          profile={profile}
-          orders={orders}
-          teams={teams}
-          onCreateTeam={createTeam}
-          onSignOut={signOut}
+          profile={profile} orders={orders} teams={teams}
+          onCreateTeam={createTeam} onFetchByDate={fetchOrdersByDate} onSignOut={signOut}
         />
       </>
     )
   }
 
   return (
-    <>
-      <GlobalStyles />
+    <><GlobalStyles />
       <EmployeeApp
-        profile={profile}
-        orders={orders}
-        onCreateOrder={createOrder}
-        onSignOut={signOut}
+        profile={profile} orders={orders}
+        onCreateOrder={createOrder} onFetchByDate={fetchOrdersByDate} onSignOut={signOut}
       />
     </>
   )

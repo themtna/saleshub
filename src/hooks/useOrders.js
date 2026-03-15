@@ -5,16 +5,11 @@ export function useOrders({ teamId = null, employeeId = null } = {}) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // ── ดึงออเดอร์ ──────────────────────────────
   const fetchOrders = useCallback(async () => {
     setLoading(true)
     let query = supabase
       .from('orders')
-      .select(`
-        *,
-        profiles ( full_name ),
-        teams ( name )
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(300)
 
@@ -22,79 +17,58 @@ export function useOrders({ teamId = null, employeeId = null } = {}) {
     if (employeeId) query = query.eq('employee_id', employeeId)
 
     const { data, error } = await query
-
-    if (!error && data) {
-      // แปลงข้อมูลให้ใช้ง่าย
-      setOrders(data.map(o => ({
-        ...o,
-        employee_name: o.profiles?.full_name || '—',
-        team_name: o.teams?.name || '—',
-      })))
-    }
+    if (!error && data) setOrders(data)
     setLoading(false)
   }, [teamId, employeeId])
 
-  // ── Realtime subscription ───────────────────
+  const fetchOrdersByDate = useCallback(async (date) => {
+    let query = supabase
+      .from('orders')
+      .select('*')
+      .eq('order_date', date)
+      .order('daily_seq', { ascending: true })
+
+    if (teamId) query = query.eq('team_id', teamId)
+
+    const { data } = await query
+    return data || []
+  }, [teamId])
+
   useEffect(() => {
     fetchOrders()
-
-    // ⚡ สมัครรับออเดอร์ใหม่แบบ Real-time
     const channel = supabase
       .channel('orders-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'orders',
-        },
-        async (payload) => {
-          // ดึงข้อมูล profile + team ของออเดอร์ใหม่
-          const { data } = await supabase
-            .from('orders')
-            .select('*, profiles(full_name), teams(name)')
-            .eq('id', payload.new.id)
-            .single()
-
-          if (data) {
-            const enriched = {
-              ...data,
-              employee_name: data.profiles?.full_name || '—',
-              team_name: data.teams?.name || '—',
-            }
-
-            // กรองตาม team/employee ถ้ามี
-            if (teamId && data.team_id !== teamId) return
-            if (employeeId && data.employee_id !== employeeId) return
-
-            setOrders(prev => [enriched, ...prev])
-          }
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+        (payload) => {
+          const o = payload.new
+          if (teamId && o.team_id !== teamId) return
+          if (employeeId && o.employee_id !== employeeId) return
+          setOrders(prev => [o, ...prev])
         }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+      ).subscribe()
+    return () => supabase.removeChannel(channel)
   }, [teamId, employeeId, fetchOrders])
 
-  // ── สร้างออเดอร์ ────────────────────────────
-  const createOrder = async ({ description, amount, quantity, employeeId: empId, teamId: tId }) => {
-    const { data, error } = await supabase
-      .from('orders')
-      .insert({
-        employee_id: empId,
-        team_id: tId,
-        description,
-        amount: parseFloat(amount),
-        quantity: parseInt(quantity),
-      })
-      .select()
-      .single()
-
-    // ไม่ต้อง setOrders เอง → Realtime จะส่งมาให้อัตโนมัติ!
+  const createOrder = async (d) => {
+    const { data, error } = await supabase.from('orders').insert({
+      order_date: new Date().toISOString().split('T')[0],
+      customer_phone: d.customerPhone,
+      customer_name: d.customerName,
+      customer_address: d.customerAddress,
+      sub_district: d.subDistrict || '',
+      district: d.district || '',
+      zip_code: d.zipCode || '',
+      customer_social: d.customerSocial || '',
+      sales_channel: d.salesChannel || '',
+      sale_price: parseFloat(d.salePrice) || 0,
+      cod_amount: parseFloat(d.codAmount) || 0,
+      remark: d.remark || '',
+      employee_id: d.employeeId,
+      team_id: d.teamId,
+      employee_name: d.employeeName || '',
+    }).select().single()
     return { data, error }
   }
 
-  return { orders, loading, createOrder, refetch: fetchOrders }
+  return { orders, loading, createOrder, fetchOrdersByDate, refetch: fetchOrders }
 }

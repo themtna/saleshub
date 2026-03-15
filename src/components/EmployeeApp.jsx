@@ -1,43 +1,267 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Input, OrderItem, Toast, Empty, LiveDot } from './ui'
+import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Empty, LiveDot } from './ui'
+import addressData from '../data/addresses.json'
 
-export default function EmployeeApp({ profile, orders, onCreateOrder, onSignOut }) {
+const channels = ['Facebook', 'Line', 'TikTok', 'Shopee', 'Lazada', 'Walk-in', 'อื่นๆ']
+
+// ════════════════════════════════════════════
+//  Smart Paste Parser
+// ════════════════════════════════════════════
+function parseSmartPaste(text) {
+  const result = {}
+  const lines = text.split(/[\n\t]+/).map(s => s.trim()).filter(Boolean)
+  const all = lines.join(' ')
+
+  // หาเบอร์โทร (10 หลัก เริ่มด้วย 0)
+  const phoneMatch = all.match(/0\d{9}/)
+  if (phoneMatch) result.customerPhone = phoneMatch[0]
+
+  // หา รหัสไปรษณีย์ (5 หลัก)
+  const zipMatch = all.match(/\b(\d{5})\b/)
+  if (zipMatch) result.zipCode = zipMatch[1]
+
+  // หาที่อยู่จาก address data
+  if (result.zipCode) {
+    const matched = addressData.filter(a => a.z === result.zipCode)
+    if (matched.length > 0) {
+      // หา sub-district ที่ตรงกับ text
+      const best = matched.find(a => all.includes(a.s)) || matched[0]
+      result.subDistrict = best.s
+      result.district = best.d
+    }
+  }
+
+  // หาชื่อ: ข้อความหลังเบอร์โทร ก่อนที่อยู่
+  if (phoneMatch) {
+    const afterPhone = all.substring(all.indexOf(phoneMatch[0]) + 10).trim()
+    // ชื่อ = ส่วนแรกก่อนตัวเลขที่อยู่
+    const nameMatch = afterPhone.match(/^([^\d]{2,30})/)
+    if (nameMatch) result.customerName = nameMatch[1].trim()
+  }
+
+  // ที่อยู่ = ส่วนที่มีตัวเลขบ้านเลขที่
+  const addrMatch = all.match(/\d+[\s\/]*(หมู่|ซอย|ถนน|ม\.|ซ\.|ถ\.|หมู่ที่|ตรอก|ต\.).*/)
+  if (addrMatch) {
+    let addr = addrMatch[0]
+    // ตัด zip ออก
+    if (result.zipCode) addr = addr.replace(result.zipCode, '').trim()
+    // ตัดตำบล อำเภอ ออก
+    if (result.subDistrict) addr = addr.replace(result.subDistrict, '').trim()
+    if (result.district) addr = addr.replace(result.district, '').trim()
+    addr = addr.replace(/[,\s]+$/, '').trim()
+    if (addr.length > 3) result.customerAddress = addr
+  }
+
+  // ถ้าไม่เจอ pattern → ใส่เป็นที่อยู่ทั้งก้อน
+  if (!result.customerAddress && !result.customerPhone) {
+    result.customerAddress = text.trim()
+  }
+
+  return result
+}
+
+// ════════════════════════════════════════════
+//  Phone Validation
+// ════════════════════════════════════════════
+function validatePhone(phone) {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length === 0) return { valid: true, msg: '' }
+  if (digits.length < 10) return { valid: false, msg: `เบอร์ขาด ${10 - digits.length} หลัก (${digits.length}/10)` }
+  if (digits.length > 10) return { valid: false, msg: `เบอร์เกิน ${digits.length - 10} หลัก (${digits.length}/10)` }
+  if (!digits.startsWith('0')) return { valid: false, msg: 'เบอร์ต้องขึ้นต้นด้วย 0' }
+  return { valid: true, msg: '✅ เบอร์ถูกต้อง' }
+}
+
+// ════════════════════════════════════════════
+//  Address Autocomplete
+// ════════════════════════════════════════════
+function AddressSearch({ onSelect, currentValue }) {
+  const [query, setQuery] = useState(currentValue || '')
+  const [results, setResults] = useState([])
+  const [show, setShow] = useState(false)
+  const ref = useRef()
+
+  useEffect(() => { setQuery(currentValue || '') }, [currentValue])
+
+  const search = (q) => {
+    setQuery(q)
+    if (q.length < 2) { setResults([]); return }
+    const lower = q.toLowerCase()
+    const found = addressData
+      .filter(a =>
+        a.s.includes(q) || a.d.includes(q) || a.p.includes(q) || a.z.includes(q)
+      )
+      .slice(0, 8)
+    setResults(found)
+    setShow(found.length > 0)
+  }
+
+  return (
+    <div style={{ position: 'relative', marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 6 }}>
+        🔍 ค้นหาตำบล/อำเภอ/รหัสไปรษณีย์
+      </label>
+      <input
+        ref={ref}
+        value={query}
+        onChange={e => search(e.target.value)}
+        onFocus={() => results.length > 0 && setShow(true)}
+        onBlur={() => setTimeout(() => setShow(false), 200)}
+        placeholder="พิมพ์ตำบล อำเภอ หรือ รหัสไปรษณีย์"
+        style={{
+          width: '100%', padding: '13px 16px', borderRadius: T.radiusSm,
+          border: `1px solid ${T.border}`, background: 'rgba(255,255,255,0.03)',
+          color: T.text, fontSize: 15, fontFamily: T.font, outline: 'none', boxSizing: 'border-box',
+        }}
+      />
+      {show && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+          background: 'rgba(16,20,36,0.98)', border: `1px solid ${T.border}`,
+          borderRadius: T.radiusSm, maxHeight: 240, overflowY: 'auto',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+        }}>
+          {results.map((a, i) => (
+            <div key={i}
+              onClick={() => { onSelect(a); setQuery(`${a.s} > ${a.d} > ${a.p} ${a.z}`); setShow(false) }}
+              style={{
+                padding: '12px 16px', cursor: 'pointer', borderBottom: `1px solid ${T.border}`,
+                fontSize: 13, transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(108,92,231,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>{a.s} → {a.d}</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>{a.p} · {a.z}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════
+//  Input with validation
+// ════════════════════════════════════════════
+function FormInput({ label, error, ...props }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {label && <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 6 }}>{label}</label>}
+      <input {...props} style={{
+        width: '100%', padding: '13px 16px', borderRadius: T.radiusSm,
+        border: `1px solid ${error ? 'rgba(255,107,107,0.5)' : T.border}`,
+        background: error ? 'rgba(255,107,107,0.04)' : 'rgba(255,255,255,0.03)',
+        color: T.text, fontSize: 15, fontFamily: T.font, outline: 'none', boxSizing: 'border-box',
+        ...(props.style || {}),
+      }} />
+      {error && <div style={{ fontSize: 11, color: '#ff6b6b', marginTop: 4 }}>{error}</div>}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════
+//  Main Component
+// ════════════════════════════════════════════
+export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByDate, onSignOut }) {
   const [tab, setTab] = useState('create')
-  const [desc, setDesc] = useState('')
-  const [amount, setAmount] = useState('')
-  const [qty, setQty] = useState('1')
+  const [form, setForm] = useState({
+    customerPhone: '', customerName: '', customerAddress: '',
+    subDistrict: '', district: '', zipCode: '',
+    customerSocial: '', salesChannel: 'Facebook',
+    salePrice: '', codAmount: '0', remark: '',
+  })
+  const [phoneError, setPhoneError] = useState('')
   const [dateFilter, setDateFilter] = useState('')
+  const [dateOrders, setDateOrders] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
+  const [showPaste, setShowPaste] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+
+  const set = (k) => (e) => {
+    const val = e.target.value
+    setForm(p => ({ ...p, [k]: val }))
+    if (k === 'customerPhone') {
+      const v = validatePhone(val)
+      setPhoneError(v.valid ? '' : v.msg)
+    }
+  }
+
+  const handleSmartPaste = () => {
+    if (!pasteText.trim()) return
+    const parsed = parseSmartPaste(pasteText)
+    setForm(p => ({
+      ...p,
+      customerPhone: parsed.customerPhone || p.customerPhone,
+      customerName: parsed.customerName || p.customerName,
+      customerAddress: parsed.customerAddress || p.customerAddress,
+      subDistrict: parsed.subDistrict || p.subDistrict,
+      district: parsed.district || p.district,
+      zipCode: parsed.zipCode || p.zipCode,
+    }))
+    if (parsed.customerPhone) {
+      const v = validatePhone(parsed.customerPhone)
+      setPhoneError(v.valid ? '' : v.msg)
+    }
+    setPasteText('')
+    setShowPaste(false)
+    setToast('✅ วางข้อมูลสำเร็จ!')
+    setTimeout(() => setToast(null), 2000)
+  }
+
+  const handleAddressSelect = (addr) => {
+    setForm(p => ({
+      ...p,
+      subDistrict: addr.s,
+      district: addr.d,
+      zipCode: addr.z,
+    }))
+  }
 
   const submit = async () => {
-    if (!desc.trim() || !amount) return
+    // Validate
+    const phoneVal = validatePhone(form.customerPhone)
+    if (!phoneVal.valid) { setToast('❌ ' + phoneVal.msg); setTimeout(() => setToast(null), 2500); return }
+    if (!form.customerPhone || !form.customerName || !form.customerAddress || !form.salePrice) {
+      setToast('❌ กรุณากรอก เบอร์, ชื่อ, ที่อยู่, ราคาขาย'); setTimeout(() => setToast(null), 2500); return
+    }
     setSubmitting(true)
-
     const { error } = await onCreateOrder({
-      description: desc.trim(),
-      amount: parseFloat(amount),
-      quantity: parseInt(qty) || 1,
+      ...form,
       employeeId: profile.id,
       teamId: profile.team_id,
+      employeeName: profile.full_name,
     })
-
     if (error) {
       setToast(`❌ ${error.message}`)
     } else {
       setToast('✅ บันทึกออเดอร์สำเร็จ!')
-      setDesc('')
-      setAmount('')
-      setQty('1')
+      setForm({
+        customerPhone: '', customerName: '', customerAddress: '',
+        subDistrict: '', district: '', zipCode: '',
+        customerSocial: '', salesChannel: 'Facebook',
+        salePrice: '', codAmount: '0', remark: '',
+      })
+      setPhoneError('')
     }
     setSubmitting(false)
     setTimeout(() => setToast(null), 2500)
   }
 
-  const todaySum = orders.filter(o => sameDay(o.created_at, new Date())).reduce((s, o) => s + (o.total_amount || 0), 0)
-  const weekSum = orders.filter(o => withinDays(o.created_at, 7)).reduce((s, o) => s + (o.total_amount || 0), 0)
-  const monthSum = orders.filter(o => thisMonth(o.created_at)).reduce((s, o) => s + (o.total_amount || 0), 0)
+  const handleDateChange = async (date) => {
+    setDateFilter(date)
+    if (date && onFetchByDate) {
+      const data = await onFetchByDate(date)
+      setDateOrders(data)
+    } else { setDateOrders(null) }
+  }
+
+  const todaySum = orders.filter(o => sameDay(o.created_at, new Date())).reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
+  const todayCount = orders.filter(o => sameDay(o.created_at, new Date())).length
+  const weekSum = orders.filter(o => withinDays(o.created_at, 7)).reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
+  const monthSum = orders.filter(o => thisMonth(o.created_at)).reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
 
   const chart7 = useMemo(() => {
     const arr = []
@@ -45,20 +269,14 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onSignOut 
       const d = new Date(); d.setDate(d.getDate() - i)
       arr.push({
         date: fmtDate(d),
-        ยอดขาย: orders.filter(o => sameDay(o.created_at, d)).reduce((s, o) => s + (o.total_amount || 0), 0),
+        ยอดขาย: orders.filter(o => sameDay(o.created_at, d)).reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0),
       })
     }
     return arr
   }, [orders])
 
-  const dateOrders = dateFilter ? orders.filter(o => sameDay(o.created_at, dateFilter)) : null
   const displayOrders = dateOrders || orders.slice(0, 50)
-  const total = parseFloat(amount || 0) * (parseInt(qty) || 1)
-
-  const tooltipStyle = {
-    background: 'rgba(10,14,26,0.96)', border: `1px solid ${T.border}`,
-    borderRadius: 12, fontFamily: T.font, fontSize: 13,
-  }
+  const tooltipStyle = { background: 'rgba(10,14,26,0.96)', border: `1px solid ${T.border}`, borderRadius: 12, fontFamily: T.font, fontSize: 13 }
 
   return (
     <div style={{ fontFamily: T.font, minHeight: '100vh', background: T.bg, color: T.text, paddingBottom: 40 }}>
@@ -90,40 +308,128 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onSignOut 
         <Tabs items={[
           { id: 'create', label: '➕ สร้างออเดอร์' },
           { id: 'summary', label: '📊 สรุปยอด' },
-          { id: 'history', label: '📋 ประวัติ' },
+          { id: 'history', label: '📋 รายงาน' },
         ]} active={tab} onChange={setTab} />
       </div>
 
       <div style={{ padding: 16 }}>
+        {/* ──── CREATE ──── */}
         {tab === 'create' && <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
             <Stat compact label="วันนี้" value={todaySum} gradient={T.grad3} />
             <Stat compact label="7 วัน" value={weekSum} gradient={T.grad1} />
             <Stat compact label="เดือน" value={monthSum} gradient={T.grad2} />
           </div>
 
           <div style={{ ...glass, padding: 20 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 18 }}>📝 สร้างออเดอร์ใหม่</div>
-            <Input label="รายละเอียดสินค้า" value={desc} onChange={e => setDesc(e.target.value)} placeholder="เช่น กาแฟ Drip, ลาเต้เย็น" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Input label="ราคา (฿)" type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" style={{ fontSize: 20, fontWeight: 800 }} />
-              <Input label="จำนวน" type="number" value={qty} onChange={e => setQty(e.target.value)} min="1" style={{ fontSize: 20, fontWeight: 800 }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div style={{ fontSize: 17, fontWeight: 800 }}>📝 ออเดอร์ #{todayCount + 1} วันนี้</div>
+              <button onClick={() => setShowPaste(!showPaste)} style={{
+                padding: '8px 14px', borderRadius: 10,
+                background: showPaste ? T.grad1 : 'rgba(108,92,231,0.1)',
+                border: 'none', color: showPaste ? '#fff' : '#a29bfe',
+                fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+              }}>📋 Smart Paste</button>
             </div>
 
-            {total > 0 && (
+            {/* Smart Paste Box */}
+            {showPaste && (
+              <div style={{
+                padding: 16, borderRadius: T.radiusSm, marginBottom: 16,
+                background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.15)',
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#a29bfe' }}>
+                  📋 วางข้อมูลลูกค้าทั้งก้อน
+                </div>
+                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 10, lineHeight: 1.6 }}>
+                  วางข้อมูลจาก Line/Facebook/Notepad — ระบบจะแยกเบอร์ ชื่อ ที่อยู่ ให้อัตโนมัติ
+                </div>
+                <textarea
+                  value={pasteText}
+                  onChange={e => setPasteText(e.target.value)}
+                  placeholder={"ตัวอย่าง:\n0815591110 คุณลูกค้า\n29 หมู่ที่ 1 ป่าแดด เมืองเชียงใหม่ 50100"}
+                  rows={4}
+                  style={{
+                    width: '100%', padding: '12px 14px', borderRadius: T.radiusSm,
+                    border: `1px solid ${T.border}`, background: 'rgba(255,255,255,0.03)',
+                    color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none',
+                    boxSizing: 'border-box', resize: 'vertical',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <Btn sm grad={T.grad1} onClick={handleSmartPaste}>✨ แยกข้อมูลอัตโนมัติ</Btn>
+                  <Btn sm outline onClick={() => { setShowPaste(false); setPasteText('') }}>ปิด</Btn>
+                </div>
+              </div>
+            )}
+
+            {/* Phone with validation */}
+            <FormInput
+              label="📱 เบอร์มือถือ * (10 หลัก)"
+              type="tel"
+              maxLength={10}
+              value={form.customerPhone}
+              onChange={set('customerPhone')}
+              placeholder="08xxxxxxxx"
+              error={phoneError}
+              style={{ fontSize: 18, fontWeight: 700, letterSpacing: 2 }}
+            />
+            {form.customerPhone && !phoneError && form.customerPhone.length === 10 && (
+              <div style={{ fontSize: 11, color: '#00cec9', marginTop: -10, marginBottom: 10 }}>✅ เบอร์ถูกต้อง (10 หลัก)</div>
+            )}
+
+            <FormInput label="👤 ชื่อลูกค้า *" value={form.customerName} onChange={set('customerName')} placeholder="คุณลูกค้า" />
+            <FormInput label="📍 ที่อยู่ *" value={form.customerAddress} onChange={set('customerAddress')} placeholder="29 หมู่ที่ 1 ถนน..." />
+
+            {/* Address Search */}
+            <AddressSearch
+              onSelect={handleAddressSelect}
+              currentValue={form.subDistrict ? `${form.subDistrict} > ${form.district} > ${form.zipCode}` : ''}
+            />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <FormInput label="ตำบล" value={form.subDistrict} onChange={set('subDistrict')} placeholder="ตำบล" />
+              <FormInput label="อำเภอ" value={form.district} onChange={set('district')} placeholder="อำเภอ" />
+              <FormInput label="รหัส ปณ." value={form.zipCode} onChange={set('zipCode')} placeholder="10500" />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <FormInput label="เฟส/ไลน์" value={form.customerSocial} onChange={set('customerSocial')} placeholder="ชื่อเฟส" />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 6 }}>ช่องทาง</label>
+                <select value={form.salesChannel} onChange={set('salesChannel')} style={{
+                  width: '100%', padding: '13px 16px', borderRadius: T.radiusSm,
+                  border: `1px solid ${T.border}`, background: 'rgba(10,14,26,0.95)',
+                  color: T.text, fontSize: 15, fontFamily: T.font, outline: 'none', boxSizing: 'border-box',
+                }}>
+                  {channels.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <FormInput label="💰 ราคาขาย (฿) *" type="number" value={form.salePrice} onChange={set('salePrice')} placeholder="0" style={{ fontSize: 20, fontWeight: 800 }} />
+              <FormInput label="📦 ยอด COD (฿)" type="number" value={form.codAmount} onChange={set('codAmount')} placeholder="0" style={{ fontSize: 20, fontWeight: 800 }} />
+            </div>
+
+            <FormInput label="💬 หมายเหตุ" value={form.remark} onChange={set('remark')} placeholder="สินค้าสีแดง x2, ฝากไว้หน้าบ้าน" />
+
+            {parseFloat(form.salePrice) > 0 && (
               <div style={{
                 textAlign: 'center', padding: 16, borderRadius: T.radiusSm, marginBottom: 16,
                 background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.12)',
               }}>
-                <div style={{ fontSize: 12, color: T.textDim }}>ยอดรวม</div>
-                <div style={{
-                  fontSize: 34, fontWeight: 900, marginTop: 4,
-                  background: T.grad1, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                }}>฿{fmt(total)}</div>
+                <div style={{ fontSize: 12, color: T.textDim }}>ราคาขาย</div>
+                <div style={{ fontSize: 34, fontWeight: 900, marginTop: 4, background: T.grad1, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  ฿{fmt(parseFloat(form.salePrice))}
+                </div>
+                {parseFloat(form.codAmount) > 0 && (
+                  <div style={{ fontSize: 13, color: T.textDim, marginTop: 4 }}>COD: ฿{fmt(parseFloat(form.codAmount))}</div>
+                )}
               </div>
             )}
 
-            <Btn full grad={T.grad2} onClick={submit} disabled={!desc.trim() || !amount || submitting}>
+            <Btn full grad={T.grad2} onClick={submit} disabled={submitting || !!phoneError}>
               {submitting ? '⏳ กำลังบันทึก...' : '✅ บันทึกออเดอร์'}
             </Btn>
             <div style={{ textAlign: 'center', marginTop: 14, fontSize: 11, color: T.textMuted }}>
@@ -132,69 +438,76 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onSignOut 
           </div>
         </>}
 
+        {/* ──── SUMMARY ──── */}
         {tab === 'summary' && <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-            <Stat label="วันนี้" value={todaySum} icon="🔥" gradient={T.grad3}
-              sub={`${orders.filter(o => sameDay(o.created_at, new Date())).length} รายการ`} />
+            <Stat label="วันนี้" value={todaySum} icon="🔥" gradient={T.grad3} sub={`${todayCount} ออเดอร์`} />
             <Stat label="7 วัน" value={weekSum} icon="📊" gradient={T.grad1} />
           </div>
           <Stat label="ยอดขายเดือนนี้" value={monthSum} icon="🏆" gradient={T.grad2}
             sub={`${orders.filter(o => thisMonth(o.created_at)).length} ออเดอร์`} />
-
           <div style={{ ...glass, padding: '18px 14px 10px', marginTop: 14 }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>📈 ยอดขาย 7 วัน</div>
             <ResponsiveContainer width="100%" height={180}>
               <AreaChart data={chart7}>
-                <defs>
-                  <linearGradient id="gE" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={T.success} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={T.success} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+                <defs><linearGradient id="gE" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={T.success} stopOpacity={0.35}/><stop offset="100%" stopColor={T.success} stopOpacity={0}/></linearGradient></defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                 <XAxis dataKey="date" stroke={T.textMuted} fontSize={11} tickLine={false} />
-                <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
+                <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={tooltipStyle} formatter={v => [`฿${fmt(v)}`, 'ยอดขาย']} />
                 <Area type="monotone" dataKey="ยอดขาย" stroke={T.success} strokeWidth={2.5} fill="url(#gE)" dot={{ r: 3, fill: T.success }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
+        </>}
 
-          <div style={{ ...glass, padding: 18, marginTop: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📅 เลือกวันที่</div>
+        {/* ──── HISTORY ──── */}
+        {tab === 'history' && <>
+          <div style={{ ...glass, padding: 16, marginBottom: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>📅 เลือกวันที่ดูออเดอร์</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+              <input type="date" value={dateFilter} onChange={e => handleDateChange(e.target.value)}
                 style={{
                   flex: 1, padding: '11px 14px', borderRadius: T.radiusSm,
                   background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}`,
                   color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none', colorScheme: 'dark',
                 }} />
-              {dateFilter && <Btn sm outline onClick={() => setDateFilter('')}>ล้าง</Btn>}
+              {dateFilter && <Btn sm outline onClick={() => handleDateChange('')}>ล้าง</Btn>}
             </div>
             {dateFilter && dateOrders && (
-              <div style={{ marginTop: 14, padding: 14, borderRadius: T.radiusSm, background: 'rgba(0,206,201,0.05)', border: '1px solid rgba(0,206,201,0.12)' }}>
-                <div style={{ fontSize: 13, color: T.textDim }}>{fmtDateFull(dateFilter)}</div>
-                <div style={{ fontSize: 28, fontWeight: 900, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', margin: '4px 0' }}>
-                  ฿{fmt(dateOrders.reduce((s, o) => s + (o.total_amount || 0), 0))}
+              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 13, color: T.textDim }}>{fmtDateFull(dateFilter)}</span>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    ฿{fmt(dateOrders.reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0))}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textMuted }}>{dateOrders.length} ออเดอร์</div>
                 </div>
-                <div style={{ fontSize: 12, color: T.textMuted }}>{dateOrders.length} ออเดอร์</div>
               </div>
             )}
           </div>
-        </>}
-
-        {tab === 'history' && <>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14 }}>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-              style={{
-                flex: 1, padding: '11px 14px', borderRadius: T.radiusSm,
-                background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}`,
-                color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none', colorScheme: 'dark',
-              }} />
-            {dateFilter && <Btn sm outline onClick={() => setDateFilter('')}>✕</Btn>}
-          </div>
-          <div style={{ maxHeight: '65vh', overflowY: 'auto' }}>
-            {displayOrders.length ? displayOrders.map(o => <OrderItem key={o.id} order={o} />) : <Empty text="ไม่พบออเดอร์" />}
+          <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
+            {displayOrders.length ? displayOrders.map(o => (
+              <div key={o.id} style={{ ...glass, padding: '14px 16px', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div>
+                    <span style={{
+                      display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      background: 'rgba(108,92,231,0.15)', color: '#a29bfe', marginRight: 8,
+                    }}>{o.order_number}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{o.customer_name}</span>
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 15, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    ฿{fmt(parseFloat(o.sale_price) || 0)}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: T.textDim, lineHeight: 1.8 }}>
+                  📱 {o.customer_phone} · {o.sales_channel || '—'}
+                  {parseFloat(o.cod_amount) > 0 && <span> · COD ฿{fmt(parseFloat(o.cod_amount))}</span>}
+                  {o.remark && <div>💬 {o.remark}</div>}
+                </div>
+              </div>
+            )) : <Empty text="ไม่พบออเดอร์" />}
           </div>
         </>}
       </div>
