@@ -1,0 +1,17 @@
+# Dependencies
+node_modules
+
+# Build
+dist
+
+# Environment (⚠️ ห้าม commit!)
+.env
+.env.local
+.env.production.local
+
+# Editor
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
