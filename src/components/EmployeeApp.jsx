@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { supabase } from '../lib/supabase'
 import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Empty, LiveDot } from './ui'
 
 // โหลด addresses แบบ lazy — ไม่บล็อคหน้าเว็บ
@@ -203,7 +204,7 @@ function FI({ label, error, success, ...props }) {
   )
 }
 
-export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByDate, onSignOut }) {
+export default function EmployeeApp({ profile, onLogout }) {
   const [tab, setTab] = useState('create')
   const [form, setForm] = useState({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' })
   const [phoneError, setPhoneError] = useState('')
@@ -214,9 +215,22 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByD
   const [pasteDetected, setPasteDetected] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [addresses, setAddresses] = useState([])
+  const [orders, setOrders] = useState([])
 
-  // โหลด addresses เมื่อ component mount
-  useEffect(() => { getAddresses().then(setAddresses) }, [])
+  // โหลด addresses + orders
+  useEffect(() => {
+    getAddresses().then(setAddresses)
+    supabase.from('orders').select('*').eq('team_id', profile.team_id).order('created_at', { ascending: false }).limit(100)
+      .then(({ data }) => setOrders(data || []))
+
+    // Realtime
+    const ch = supabase.channel('emp-orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+      (payload) => {
+        if (payload.new.team_id === profile.team_id) setOrders(prev => [payload.new, ...prev])
+      }
+    ).subscribe()
+    return () => supabase.removeChannel(ch)
+  }, [profile.team_id])
 
   const set = (k) => (e) => {
     setForm(p => ({ ...p, [k]: e.target.value }))
@@ -232,12 +246,25 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByD
     if (!form.customerPhone || !form.customerName || !form.customerAddress || !form.amount) { setToast('❌ กรุณากรอก เบอร์, ชื่อ, ที่อยู่, ยอดเงิน'); setTimeout(() => setToast(null), 2500); return }
     setSubmitting(true)
     const amt = parseFloat(form.amount) || 0
-    const { error } = await onCreateOrder({ ...form, salePrice: amt, codAmount: amt, employeeId: profile.id, teamId: profile.team_id, employeeName: profile.full_name })
+    const { error } = await supabase.from('orders').insert({
+      order_date: new Date().toISOString().split('T')[0],
+      customer_phone: form.customerPhone, customer_name: form.customerName,
+      customer_address: form.customerAddress, sub_district: form.subDistrict,
+      district: form.district, zip_code: form.zipCode, customer_social: form.customerSocial,
+      sales_channel: form.salesChannel, sale_price: amt, cod_amount: amt,
+      remark: form.remark, employee_id: profile.id, team_id: profile.team_id, employee_name: profile.full_name,
+    })
     if (error) { setToast(`❌ ${error.message}`) } else { setToast('✅ บันทึกออเดอร์สำเร็จ!'); clearForm() }
     setSubmitting(false); setTimeout(() => setToast(null), 2500)
   }
 
-  const handleDateChange = async (d) => { setDateFilter(d); if (d && onFetchByDate) setDateOrders(await onFetchByDate(d)); else setDateOrders(null) }
+  const handleDateChange = async (d) => {
+    setDateFilter(d)
+    if (d) {
+      const { data } = await supabase.from('orders').select('*').eq('order_date', d).eq('team_id', profile.team_id).order('daily_seq')
+      setDateOrders(data || [])
+    } else setDateOrders(null)
+  }
 
   const todayOrders = orders.filter(o => sameDay(o.created_at, new Date()))
   const todaySum = todayOrders.reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
@@ -259,7 +286,7 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByD
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 20, fontWeight: 900 }}>👤 SalesHub</span><LiveDot /></div>
           <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{profile.full_name} · {profile.teams?.name || '—'}</div>
         </div>
-        <button onClick={onSignOut} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${T.border}`, background: 'transparent', color: T.textDim, fontSize: 12, cursor: 'pointer', fontFamily: T.font }}>ออก</button>
+        <button onClick={onLogout} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${T.border}`, background: 'transparent', color: T.textDim, fontSize: 12, cursor: 'pointer', fontFamily: T.font }}>ออก</button>
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>
