@@ -214,6 +214,9 @@ export default function EmployeeApp({ profile, onLogout }) {
   const [form, setForm] = useState({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' })
   const [phoneError, setPhoneError] = useState('')
   const [addressWarning, setAddressWarning] = useState('')
+  const [paymentType, setPaymentType] = useState('cod')
+  const [slipFile, setSlipFile] = useState(null)
+  const [slipPreview, setSlipPreview] = useState(null)
   const [dateFilter, setDateFilter] = useState('')
   const [dateOrders, setDateOrders] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -310,19 +313,34 @@ export default function EmployeeApp({ profile, onLogout }) {
     setAddressWarning('') // เลือกจาก dropdown ถูกต้องเสมอ
   }
 
-  const clearForm = () => { setForm({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' }); setPhoneError(''); setAddressWarning(''); setPasteText('') }
+  const clearForm = () => { setForm({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' }); setPhoneError(''); setAddressWarning(''); setPasteText(''); setPaymentType('cod'); setSlipFile(null); setSlipPreview(null) }
 
   const submit = async () => {
     if (!validatePhone(form.customerPhone).valid) { setToast('❌ เบอร์โทรไม่ถูกต้อง'); setTimeout(() => setToast(null), 2500); return }
     if (!form.customerPhone || !form.customerName || !form.customerAddress || !form.amount) { setToast('❌ กรุณากรอก เบอร์, ชื่อ, ที่อยู่, ยอดเงิน'); setTimeout(() => setToast(null), 2500); return }
+    if (paymentType === 'transfer' && !slipFile) { setToast('❌ กรุณาอัพโหลดสลิปโอนเงิน'); setTimeout(() => setToast(null), 2500); return }
     setSubmitting(true)
     const amt = parseFloat(form.amount) || 0
+
+    // อัพโหลดสลิป (ถ้ามี)
+    let slipUrl = ''
+    if (slipFile && paymentType === 'transfer') {
+      const fileName = `slips/${Date.now()}_${Math.random().toString(36).slice(2)}.${slipFile.name.split('.').pop()}`
+      const { error: upErr } = await supabase.storage.from('slips').upload(fileName, slipFile)
+      if (upErr) { setToast(`❌ อัพโหลดสลิปไม่สำเร็จ: ${upErr.message}`); setSubmitting(false); setTimeout(() => setToast(null), 2500); return }
+      const { data: urlData } = supabase.storage.from('slips').getPublicUrl(fileName)
+      slipUrl = urlData?.publicUrl || ''
+    }
+
     const { error } = await supabase.from('orders').insert({
       order_date: new Date().toISOString().split('T')[0],
       customer_phone: form.customerPhone, customer_name: form.customerName,
       customer_address: form.customerAddress, sub_district: form.subDistrict,
       district: form.district, zip_code: form.zipCode, customer_social: form.customerSocial,
-      sales_channel: form.salesChannel, sale_price: amt, cod_amount: amt,
+      sales_channel: form.salesChannel, sale_price: amt,
+      cod_amount: paymentType === 'cod' ? amt : 0,
+      payment_type: paymentType,
+      slip_url: slipUrl,
       remark: form.remark, employee_id: profile.id, team_id: profile.team_id, employee_name: profile.full_name,
     })
     if (error) { setToast(`❌ ${error.message}`) } else { setToast('✅ บันทึกออเดอร์สำเร็จ!'); clearForm() }
@@ -378,7 +396,7 @@ export default function EmployeeApp({ profile, onLogout }) {
           </div>
           <div style={{ ...glass, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <div style={{ fontSize: 17, fontWeight: 800 }}>📝 ออเดอร์ #{todayOrders.length + 1}</div>
+              <div style={{ fontSize: 17, fontWeight: 800 }}>📝 ลำดับที่ {todayOrders.length + 1} ของวันนี้</div>
               <div style={{ fontSize: 11, color: T.textDim }}>👤 {profile.full_name}</div>
             </div>
             <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 16, background: 'rgba(184,134,11,0.05)', border: '1px solid rgba(184,134,11,0.12)', fontSize: 12, color: T.gold, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -469,15 +487,79 @@ export default function EmployeeApp({ profile, onLogout }) {
             </div>
 
             <FI label="💰 ยอดเงิน (฿) *" type="number" value={form.amount} onChange={set('amount')} placeholder="0" style={{ fontSize: 22, fontWeight: 800, textAlign: 'center' }} />
+
+            {/* ประเภทการชำระเงิน */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 8 }}>💳 ประเภทการชำระเงิน</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button onClick={() => { setPaymentType('cod'); setSlipFile(null); setSlipPreview(null) }} style={{
+                  padding: '12px', borderRadius: T.radiusSm, cursor: 'pointer', fontFamily: T.font, fontSize: 14, fontWeight: 600,
+                  border: paymentType === 'cod' ? '2px solid ' + T.gold : '1px solid ' + T.border,
+                  background: paymentType === 'cod' ? 'rgba(184,134,11,0.08)' : T.surface,
+                  color: paymentType === 'cod' ? T.gold : T.textDim,
+                }}>📦 เก็บเงินปลายทาง (COD)</button>
+                <button onClick={() => setPaymentType('transfer')} style={{
+                  padding: '12px', borderRadius: T.radiusSm, cursor: 'pointer', fontFamily: T.font, fontSize: 14, fontWeight: 600,
+                  border: paymentType === 'transfer' ? '2px solid ' + T.success : '1px solid ' + T.border,
+                  background: paymentType === 'transfer' ? 'rgba(45,138,78,0.08)' : T.surface,
+                  color: paymentType === 'transfer' ? T.success : T.textDim,
+                }}>🏦 โอนเงิน</button>
+              </div>
+            </div>
+
+            {/* อัพโหลดสลิป (เฉพาะโอนเงิน) */}
+            {paymentType === 'transfer' && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 8 }}>🧾 อัพโหลดสลิปโอนเงิน *</label>
+                <div style={{
+                  padding: 16, borderRadius: T.radiusSm, textAlign: 'center',
+                  border: `2px dashed ${slipFile ? T.success : T.border}`,
+                  background: slipFile ? 'rgba(45,138,78,0.03)' : T.surfaceAlt,
+                  cursor: 'pointer', position: 'relative',
+                }} onClick={() => document.getElementById('slip-input').click()}>
+                  <input id="slip-input" type="file" accept="image/*" style={{ display: 'none' }}
+                    onChange={e => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        if (file.size > 5 * 1024 * 1024) { setToast('❌ ไฟล์ใหญ่เกิน 5MB'); setTimeout(() => setToast(null), 2500); return }
+                        setSlipFile(file)
+                        const reader = new FileReader()
+                        reader.onload = (ev) => setSlipPreview(ev.target.result)
+                        reader.readAsDataURL(file)
+                      }
+                    }}
+                  />
+                  {slipPreview ? (
+                    <div>
+                      <img src={slipPreview} alt="สลิป" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: 8 }} />
+                      <div style={{ fontSize: 12, color: T.success, fontWeight: 600 }}>✅ {slipFile.name}</div>
+                      <button onClick={e => { e.stopPropagation(); setSlipFile(null); setSlipPreview(null) }}
+                        style={{ marginTop: 8, padding: '6px 14px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.textDim, fontSize: 12, cursor: 'pointer', fontFamily: T.font }}>
+                        🗑 ลบสลิป
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>📷</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: T.textDim }}>กดเพื่อเลือกรูปสลิป</div>
+                      <div style={{ fontSize: 11, color: T.textMuted, marginTop: 4 }}>รองรับ JPG, PNG ไม่เกิน 5MB</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {amt > 0 && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
                 <div style={{ textAlign: 'center', padding: 12, borderRadius: T.radiusSm, background: 'rgba(184,134,11,0.05)', border: '1px solid rgba(184,134,11,0.12)' }}>
                   <div style={{ fontSize: 11, color: T.textDim }}>ราคาขาย</div>
                   <div style={{ fontSize: 22, fontWeight: 900, background: T.grad1, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>฿{fmt(amt)}</div>
                 </div>
-                <div style={{ textAlign: 'center', padding: 12, borderRadius: T.radiusSm, background: 'rgba(45,138,78,0.05)', border: '1px solid rgba(45,138,78,0.12)' }}>
-                  <div style={{ fontSize: 11, color: T.textDim }}>COD</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>฿{fmt(amt)}</div>
+                <div style={{ textAlign: 'center', padding: 12, borderRadius: T.radiusSm, background: paymentType === 'cod' ? 'rgba(45,138,78,0.05)' : 'rgba(45,138,78,0.02)', border: `1px solid ${paymentType === 'cod' ? 'rgba(45,138,78,0.12)' : T.border}` }}>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{paymentType === 'cod' ? 'COD' : 'โอนแล้ว'}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    {paymentType === 'cod' ? `฿${fmt(amt)}` : '✅'}
+                  </div>
                 </div>
               </div>
             )}
@@ -488,66 +570,146 @@ export default function EmployeeApp({ profile, onLogout }) {
           </div>
         </>}
 
-        {tab === 'summary' && <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-            <Stat label="วันนี้" value={todaySum} icon="🔥" gradient={T.grad3} sub={`${todayOrders.length} ออเดอร์`} />
-            <Stat label="7 วัน" value={weekSum} icon="📊" gradient={T.grad1} />
-          </div>
-          <Stat label="เดือนนี้" value={monthSum} icon="🏆" gradient={T.grad2} sub={`${orders.filter(o => thisMonth(o.created_at)).length} ออเดอร์`} />
-          <div style={{ ...glass, padding: '18px 14px 10px', marginTop: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>📈 ยอดขาย 7 วัน</div>
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={chart7}>
-                <defs><linearGradient id="gE" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={T.success} stopOpacity={0.35}/><stop offset="100%" stopColor={T.success} stopOpacity={0}/></linearGradient></defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="date" stroke={T.textMuted} fontSize={11} tickLine={false} />
-                <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={ts} formatter={v => [`฿${fmt(v)}`, 'ยอดขาย']} />
-                <Area type="monotone" dataKey="ยอดขาย" stroke={T.success} strokeWidth={2.5} fill="url(#gE)" dot={{ r: 3, fill: T.success }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </>}
+        {tab === 'summary' && (() => {
+          const todayCod = todayOrders.filter(o => o.payment_type !== 'transfer')
+          const todayTrans = todayOrders.filter(o => o.payment_type === 'transfer')
+          const todayCodSum = todayCod.reduce((s,o) => s+(parseFloat(o.cod_amount)||0), 0)
+          const todayTransSum = todayTrans.reduce((s,o) => s+(parseFloat(o.sale_price)||0), 0)
+          const monthOrders = orders.filter(o => thisMonth(o.created_at))
+          const monthCodSum = monthOrders.filter(o => o.payment_type !== 'transfer').reduce((s,o) => s+(parseFloat(o.cod_amount)||0), 0)
+          const monthTransSum = monthOrders.filter(o => o.payment_type === 'transfer').reduce((s,o) => s+(parseFloat(o.sale_price)||0), 0)
+          return <>
+            {/* ยอดรวม */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <Stat label="วันนี้" value={todaySum} icon="🔥" gradient={T.grad3} sub={`${todayOrders.length} ออเดอร์`} />
+              <Stat label="7 วัน" value={weekSum} icon="📊" gradient={T.grad1} />
+            </div>
+            <Stat label="เดือนนี้" value={monthSum} icon="🏆" gradient={T.grad2} sub={`${monthOrders.length} ออเดอร์`} />
+
+            {/* แยก COD / โอน — วันนี้ */}
+            <div style={{ ...glass, padding: 16, marginTop: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📊 วันนี้ — แยกประเภท</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ padding: 14, borderRadius: T.radiusSm, background: 'rgba(184,134,11,0.04)', border: '1px solid rgba(184,134,11,0.12)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: T.textDim }}>📦 COD ({todayCod.length})</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: T.gold }}>฿{fmt(todayCodSum)}</div>
+                </div>
+                <div style={{ padding: 14, borderRadius: T.radiusSm, background: 'rgba(45,138,78,0.04)', border: '1px solid rgba(45,138,78,0.12)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: T.textDim }}>🏦 โอนเงิน ({todayTrans.length})</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: T.success }}>฿{fmt(todayTransSum)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* แยก COD / โอน — เดือนนี้ */}
+            <div style={{ ...glass, padding: 16, marginTop: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📊 เดือนนี้ — แยกประเภท</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ padding: 14, borderRadius: T.radiusSm, background: 'rgba(184,134,11,0.04)', border: '1px solid rgba(184,134,11,0.12)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: T.textDim }}>📦 COD ({monthOrders.filter(o=>o.payment_type!=='transfer').length})</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: T.gold }}>฿{fmt(monthCodSum)}</div>
+                </div>
+                <div style={{ padding: 14, borderRadius: T.radiusSm, background: 'rgba(45,138,78,0.04)', border: '1px solid rgba(45,138,78,0.12)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: T.textDim }}>🏦 โอนเงิน ({monthOrders.filter(o=>o.payment_type==='transfer').length})</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: T.success }}>฿{fmt(monthTransSum)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* กราฟ */}
+            <div style={{ ...glass, padding: '18px 14px 10px', marginTop: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>📈 ยอดขาย 7 วัน</div>
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={chart7}>
+                  <defs><linearGradient id="gE" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={T.success} stopOpacity={0.35}/><stop offset="100%" stopColor={T.success} stopOpacity={0}/></linearGradient></defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
+                  <XAxis dataKey="date" stroke={T.textMuted} fontSize={11} tickLine={false} />
+                  <YAxis stroke={T.textMuted} fontSize={11} tickLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={ts} formatter={v => [`฿${fmt(v)}`, 'ยอดขาย']} />
+                  <Area type="monotone" dataKey="ยอดขาย" stroke={T.success} strokeWidth={2.5} fill="url(#gE)" dot={{ r: 3, fill: T.success }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        })()}
 
         {tab === 'history' && <>
           <div style={{ ...glass, padding: 16, marginBottom: 14 }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>📅 เลือกวันที่</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input type="date" value={dateFilter} onChange={e => handleDateChange(e.target.value)} style={{ flex: 1, padding: '11px 14px', borderRadius: T.radiusSm, background: T.surfaceAlt, border: `1px solid ${T.border}`, color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none',  }} />
+              <input type="date" value={dateFilter} onChange={e => handleDateChange(e.target.value)} style={{ flex: 1, padding: '11px 14px', borderRadius: T.radiusSm, background: T.surfaceAlt, border: `1px solid ${T.border}`, color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none' }} />
               {dateFilter && <Btn sm outline onClick={() => handleDateChange('')}>ล้าง</Btn>}
             </div>
-            {dateFilter && dateOrders && (
-              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 13, color: T.textDim }}>{fmtDateFull(dateFilter)}</span>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 20, fontWeight: 900, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>฿{fmt(dateOrders.reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0))}</div>
-                  <div style={{ fontSize: 11, color: T.textMuted }}>{dateOrders.length} ออเดอร์</div>
+            {dateFilter && dateOrders && (() => {
+              const codOrd = dateOrders.filter(o => o.payment_type !== 'transfer')
+              const transOrd = dateOrders.filter(o => o.payment_type === 'transfer')
+              return (
+                <div style={{ marginTop: 12, padding: 14, borderRadius: T.radiusSm, background: 'rgba(184,134,11,0.05)', border: '1px solid rgba(184,134,11,0.12)' }}>
+                  <div style={{ fontSize: 13, color: T.textDim, marginBottom: 6 }}>{fmtDateFull(dateFilter)}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <div><div style={{ fontSize: 10, color: T.textMuted }}>ทั้งหมด</div><div style={{ fontSize: 20, fontWeight: 900, color: T.gold }}>{dateOrders.length}</div><div style={{ fontSize: 18, fontWeight: 900, color: T.success }}>฿{fmt(dateOrders.reduce((s,o)=>s+(parseFloat(o.sale_price)||0),0))}</div></div>
+                    <div><div style={{ fontSize: 10, color: T.textMuted }}>📦 COD ({codOrd.length})</div><div style={{ fontSize: 18, fontWeight: 900, color: T.gold }}>฿{fmt(codOrd.reduce((s,o)=>s+(parseFloat(o.cod_amount)||0),0))}</div></div>
+                    <div><div style={{ fontSize: 10, color: T.textMuted }}>🏦 โอน ({transOrd.length})</div><div style={{ fontSize: 18, fontWeight: 900, color: T.success }}>฿{fmt(transOrd.reduce((s,o)=>s+(parseFloat(o.sale_price)||0),0))}</div></div>
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
-          <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
-            {displayOrders.length ? displayOrders.map(o => (
-              <div key={o.id} style={{ ...glass, padding: '14px 16px', marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+
+          {dateFilter && dateOrders ? (() => {
+            const codOrd = dateOrders.filter(o => o.payment_type !== 'transfer')
+            const transOrd = dateOrders.filter(o => o.payment_type === 'transfer')
+            const renderOrd = (o, idx) => (
+              <div key={o.id} style={{ ...glass, padding: '12px 16px', marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <div>
-                    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: 'rgba(184,134,11,0.1)', color: T.gold, marginRight: 8 }}>{o.order_number}</span>
+                    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: 'rgba(184,134,11,0.1)', color: T.gold, marginRight: 6 }}>ลำดับที่ {o.daily_seq || (idx+1)}</span>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{o.customer_name}</span>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 800, fontSize: 15, background: T.grad2, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>฿{fmt(parseFloat(o.sale_price) || 0)}</div>
-                    <div style={{ fontSize: 10, color: T.textDim }}>COD ฿{fmt(parseFloat(o.cod_amount) || 0)}</div>
-                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
                 </div>
-                <div style={{ fontSize: 11, color: T.textDim, lineHeight: 1.8 }}>
-                  📱 {o.customer_phone} {o.sales_channel && <span>· 📦 {o.sales_channel}</span>}
-                  {o.customer_social && <span> · 📘 {o.customer_social}</span>}
-                  {o.employee_name && <span> · 👤 {o.employee_name}</span>}
-                  {o.remark && <div>💬 {o.remark}</div>}
-                </div>
+                <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} {o.sales_channel && `· 📦 ${o.sales_channel}`} {o.remark && `· 💬 ${o.remark}`}</div>
+                {o.slip_url && <a href={o.slip_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(45,138,78,0.06)', border: '1px solid rgba(45,138,78,0.15)', fontSize: 11, color: T.success, fontWeight: 600, textDecoration: 'none' }}>🧾 ดูสลิป</a>}
               </div>
-            )) : <Empty text="ไม่พบออเดอร์" />}
-          </div>
+            )
+            return (
+              <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
+                {codOrd.length > 0 && <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', marginBottom: 4 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>📦 COD</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: T.gold }}>{codOrd.length} รายการ · ฿{fmt(codOrd.reduce((s,o)=>s+(parseFloat(o.cod_amount)||0),0))}</div>
+                  </div>
+                  {codOrd.map((o,i) => renderOrd(o,i))}
+                </>}
+                {transOrd.length > 0 && <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', marginTop: 10, marginBottom: 4 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>🏦 โอนเงิน</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: T.success }}>{transOrd.length} รายการ · ฿{fmt(transOrd.reduce((s,o)=>s+(parseFloat(o.sale_price)||0),0))}</div>
+                  </div>
+                  {transOrd.map((o,i) => renderOrd(o,i))}
+                </>}
+                {dateOrders.length === 0 && <Empty text="ไม่มีออเดอร์วันนี้" />}
+              </div>
+            )
+          })() : (
+            <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
+              {displayOrders.length ? displayOrders.map((o,i) => (
+                <div key={o.id} style={{ ...glass, padding: '12px 16px', marginBottom: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <div>
+                      <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: 'rgba(184,134,11,0.1)', color: T.gold, marginRight: 6 }}>ลำดับที่ {o.daily_seq || (i+1)}</span>
+                      <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: 6, fontSize: 10, fontWeight: 600, background: o.payment_type === 'transfer' ? 'rgba(45,138,78,0.1)' : 'rgba(184,134,11,0.08)', color: o.payment_type === 'transfer' ? T.success : T.gold }}>
+                        {o.payment_type === 'transfer' ? '🏦 โอน' : '📦 COD'}
+                      </span>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{o.customer_name}</div>
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} {o.remark && `· 💬 ${o.remark}`}</div>
+                </div>
+              )) : <Empty text="ไม่พบออเดอร์" />}
+            </div>
+          )}
         </>}
       </div>
       <style>{`@keyframes toastIn { from { transform:translate(-50%,-120%); opacity:0; } to { transform:translate(-50%,0); opacity:1; } }`}</style>
