@@ -9,7 +9,7 @@ export function useOrders({ teamId = null, employeeId = null } = {}) {
     setLoading(true)
     let query = supabase
       .from('orders')
-      .select('*')
+      .select('*, profiles(full_name, team_id)')
       .order('created_at', { ascending: false })
       .limit(300)
 
@@ -17,21 +17,30 @@ export function useOrders({ teamId = null, employeeId = null } = {}) {
     if (employeeId) query = query.eq('employee_id', employeeId)
 
     const { data, error } = await query
-    if (!error && data) setOrders(data)
+    if (!error && data) {
+      // เติม employee_name จาก profiles ถ้าว่าง
+      setOrders(data.map(o => ({
+        ...o,
+        employee_name: o.employee_name || o.profiles?.full_name || '—',
+      })))
+    }
     setLoading(false)
   }, [teamId, employeeId])
 
   const fetchOrdersByDate = useCallback(async (date) => {
     let query = supabase
       .from('orders')
-      .select('*')
+      .select('*, profiles(full_name)')
       .eq('order_date', date)
       .order('daily_seq', { ascending: true })
 
     if (teamId) query = query.eq('team_id', teamId)
 
     const { data } = await query
-    return data || []
+    return (data || []).map(o => ({
+      ...o,
+      employee_name: o.employee_name || o.profiles?.full_name || '—',
+    }))
   }, [teamId])
 
   useEffect(() => {
@@ -39,10 +48,15 @@ export function useOrders({ teamId = null, employeeId = null } = {}) {
     const channel = supabase
       .channel('orders-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
-        (payload) => {
+        async (payload) => {
           const o = payload.new
           if (teamId && o.team_id !== teamId) return
           if (employeeId && o.employee_id !== employeeId) return
+          // ดึงชื่อพนักงานถ้าว่าง
+          if (!o.employee_name && o.employee_id) {
+            const { data: prof } = await supabase.from('profiles').select('full_name').eq('id', o.employee_id).single()
+            o.employee_name = prof?.full_name || '—'
+          }
           setOrders(prev => [o, ...prev])
         }
       ).subscribe()

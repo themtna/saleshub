@@ -70,19 +70,27 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onUpd
     const empMap = {}
     orders.forEach(o => {
       if (!o.employee_id) return
-      if (!empMap[o.employee_id]) empMap[o.employee_id] = { id: o.employee_id, name: o.employee_name || '—', team_id: o.team_id, todaySales: 0, todayCount: 0, weekSales: 0, monthSales: 0, monthCount: 0 }
+      if (!empMap[o.employee_id]) {
+        // หาชื่อจาก allProfiles ก่อน ถ้าไม่เจอค่อยใช้จาก order
+        const prof = allProfiles.find(p => p.id === o.employee_id)
+        empMap[o.employee_id] = {
+          id: o.employee_id,
+          name: prof?.full_name || o.employee_name || '—',
+          team_id: prof?.team_id || o.team_id,
+          todaySales: 0, todayCount: 0, weekSales: 0, monthSales: 0, monthCount: 0
+        }
+      }
       const e = empMap[o.employee_id]
       const amt = parseFloat(o.sale_price) || 0
       if (sameDay(o.created_at, new Date())) { e.todaySales += amt; e.todayCount++ }
       if (withinDays(o.created_at, 7)) e.weekSales += amt
       if (thisMonth(o.created_at)) { e.monthSales += amt; e.monthCount++ }
     })
-    // เพิ่มชื่อทีม
     return Object.values(empMap).map(e => ({
       ...e,
       teamName: teams.find(t => t.id === e.team_id)?.name || '—',
     })).sort((a, b) => b.monthSales - a.monthSales)
-  }, [orders, teams])
+  }, [orders, teams, allProfiles])
 
   const displayOrders = dateOrders || orders.slice(0, 60)
   const ts = { background: '#fff', border: `1px solid ${T.border}`, borderRadius: 12, fontFamily: T.font, fontSize: 13 }
@@ -220,15 +228,25 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onUpd
                 </div>
                 {/* สมาชิกในทีม */}
                 <div style={{ paddingLeft: 42 }}>
-                  {empStats.filter(e => e.team_id === t.id).map(e => (
-                    <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 12 }}>
-                      <span style={{ color: T.textDim }}>👤 {e.name}</span>
-                      <div style={{ display: 'flex', gap: 14 }}>
-                        <span style={{ color: T.textDim }}>วันนี้ <strong style={{ color: T.text }}>฿{fmt(e.todaySales)}</strong></span>
-                        <span style={{ color: T.textDim }}>เดือน <strong style={{ color: T.text }}>฿{fmt(e.monthSales)}</strong></span>
+                  {(() => {
+                    const teamEmps = empStats.filter(e => e.team_id === t.id)
+                    const teamProfs = allProfiles.filter(p => p.team_id === t.id && p.role === 'employee')
+                    const allMembers = [...teamEmps]
+                    teamProfs.forEach(p => {
+                      if (!teamEmps.find(e => e.id === p.id)) {
+                        allMembers.push({ id: p.id, name: p.full_name, todaySales: 0, monthSales: 0 })
+                      }
+                    })
+                    return allMembers.map(e => (
+                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 12 }}>
+                        <span style={{ color: T.textDim }}>👤 {e.name}</span>
+                        <div style={{ display: 'flex', gap: 14 }}>
+                          <span style={{ color: T.textDim }}>วันนี้ <strong style={{ color: T.text }}>฿{fmt(e.todaySales)}</strong></span>
+                          <span style={{ color: T.textDim }}>เดือน <strong style={{ color: T.text }}>฿{fmt(e.monthSales)}</strong></span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  })()}
                 </div>
               </div>
             ))}
@@ -348,23 +366,35 @@ export default function ManagerApp({ profile, orders, teams, onCreateTeam, onUpd
                   }}>✏️</button>
                 </div>
               </div>
-              {/* สมาชิกในทีม */}
-              {empStats.filter(e => e.team_id === t.id).length > 0 && (
-                <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
-                  {empStats.filter(e => e.team_id === t.id).map(e => (
-                    <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', fontSize: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 24, height: 24, borderRadius: 6, background: T.grad1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff' }}>{e.name[0]}</div>
-                        <span>{e.name}</span>
+              {/* สมาชิกในทีม — รวมคนที่ยังไม่มีออเดอร์ */}
+              {(() => {
+                const teamEmps = empStats.filter(e => e.team_id === t.id)
+                const teamProfs = allProfiles.filter(p => p.team_id === t.id && p.role === 'employee')
+                // รวมพนักงานที่มี profile แต่ยังไม่มี order
+                const allMembers = [...teamEmps]
+                teamProfs.forEach(p => {
+                  if (!teamEmps.find(e => e.id === p.id)) {
+                    allMembers.push({ id: p.id, name: p.full_name, todaySales: 0, todayCount: 0, monthSales: 0, monthCount: 0 })
+                  }
+                })
+                if (allMembers.length === 0) return null
+                return (
+                  <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                    {allMembers.map(e => (
+                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', fontSize: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 24, height: 24, borderRadius: 6, background: T.grad1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff' }}>{e.name?.[0] || '?'}</div>
+                          <span>{e.name}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
+                          <span style={{ color: T.textDim }}>วันนี้ <strong style={{ color: T.text }}>฿{fmt(e.todaySales)}</strong> ({e.todayCount})</span>
+                          <span style={{ color: T.textDim }}>เดือน <strong style={{ color: T.gold }}>฿{fmt(e.monthSales)}</strong></span>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
-                        <span style={{ color: T.textDim }}>วันนี้ <strong style={{ color: T.text }}>฿{fmt(e.todaySales)}</strong> ({e.todayCount})</span>
-                        <span style={{ color: T.textDim }}>เดือน <strong style={{ color: T.gold }}>฿{fmt(e.monthSales)}</strong></span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           ))}
         </>}
