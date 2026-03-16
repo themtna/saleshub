@@ -31,20 +31,23 @@ export default function ManagerApp({ profile, onLogout }) {
 
   // ═══ โหลดข้อมูลทั้งหมด ═══
   useEffect(() => {
-    supabase.from('orders').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(100)
-      .then(({ data }) => setOrders((data || []).map(o => ({ ...o, employee_name: o.employee_name || o.profiles?.full_name || '—' }))))
-    supabase.from('teams').select('*').order('name').then(({ data }) => setTeams(data || []))
-    supabase.from('profiles').select('*, teams(id, name)').order('created_at', { ascending: false }).then(({ data }) => setProfiles(data || []))
+    const load = async () => {
+      try {
+        const [ordersRes, teamsRes, profilesRes] = await Promise.all([
+          supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(100),
+          supabase.from('teams').select('*').order('name'),
+          supabase.from('profiles').select('*, teams(id, name)').order('created_at', { ascending: false }),
+        ])
+        setOrders(ordersRes.data || [])
+        setTeams(teamsRes.data || [])
+        setProfiles(profilesRes.data || [])
+      } catch (e) { console.error('Load error:', e) }
+    }
+    load()
 
     // Realtime
     const ch = supabase.channel('mgr-orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
-      async (payload) => {
-        const o = payload.new
-        if (!o.employee_name) {
-          try { const { data: p } = await supabase.from('profiles').select('full_name').eq('id', o.employee_id).single(); o.employee_name = p?.full_name || '—' } catch {}
-        }
-        setOrders(prev => [o, ...prev])
-      }
+      (payload) => { setOrders(prev => [payload.new, ...prev]) }
     ).subscribe()
     return () => supabase.removeChannel(ch)
   }, [])
@@ -89,7 +92,7 @@ export default function ManagerApp({ profile, onLogout }) {
   // ═══ Handlers ═══
   const handleDateChange = async (d) => {
     setDateFilter(d)
-    if (d) { const { data } = await supabase.from('orders').select('*, profiles(full_name)').eq('order_date', d).order('daily_seq'); setDateOrders((data||[]).map(o => ({ ...o, employee_name: o.employee_name || o.profiles?.full_name || '—' }))) }
+    if (d) { try { const { data } = await supabase.from('orders').select('*').eq('order_date', d).order('daily_seq'); setDateOrders(data || []) } catch { setDateOrders([]) } }
     else setDateOrders(null)
   }
 
@@ -237,7 +240,7 @@ export default function ManagerApp({ profile, onLogout }) {
                   <div><span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: 'rgba(184,134,11,0.1)', color: T.gold, marginRight: 8 }}>{o.order_number}</span><span style={{ fontSize: 13, fontWeight: 600 }}>{o.customer_name}</span></div>
                   <div style={{ textAlign: 'right' }}><div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div></div>
                 </div>
-                <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} {o.sales_channel && `· 📦 ${o.sales_channel}`} {o.employee_name && `· 👤 ${o.employee_name}`}</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} {o.sales_channel && `· 📦 ${o.sales_channel}`} · 👤 {o.employee_name || profiles.find(p=>p.id===o.employee_id)?.full_name || '—'}</div>
                 {o.remark && <div style={{ fontSize: 11, color: T.textDim }}>💬 {o.remark}</div>}
               </div>
             ))}

@@ -18,134 +18,139 @@ async function getAddresses() {
 function parseSmartPaste(text, addressData = []) {
   const result = {}
   const lines = text.split('\n').map(s => s.trim()).filter(Boolean)
-  const all = lines.join(' ')
+  // แก้ typo: อ.เภอ → อำเภอ
+  const fixedLines = lines.map(l => l.replace(/อ\.เภอ/g, 'อำเภอ'))
+  const all = fixedLines.join(' ')
 
+  // 1. เบอร์โทร — รองรับ โทร0624325651, 080-439-7802
   const cleaned = all.replace(/(\d)\s*[-–—]\s*(\d)/g, '$1$2')
   const phoneMatch = cleaned.match(/(?<!\d)(0[689]\d{8})(?!\d)/)
   if (phoneMatch) result.customerPhone = phoneMatch[1]
 
+  // 2. รหัสไปรษณีย์ (5 หลัก)
   const zipCandidates = all.match(/[1-9]\d{4}/g) || []
   for (const z of zipCandidates) {
     if (result.customerPhone && result.customerPhone.includes(z)) continue
     if (parseInt(z) >= 10000 && parseInt(z) <= 96000) { result.zipCode = z; break }
   }
 
+  // 3. COD
   const codMatch = all.match(/COD\s*[:\s]*(\d+)/i)
   if (codMatch) result.amount = codMatch[1]
 
-  // FB / Line
-  for (const line of lines) {
+  // 4. FB / Line
+  for (const line of fixedLines) {
     const fbM = line.match(/^(?:FB|Facebook)[:\s]+(.+)/i)
     if (fbM) result.customerSocial = fbM[1].trim()
     const liM = line.match(/^(?:Line|ไลน์)[:\s]+(.+)/i)
     if (liM) result.customerSocial = liM[1].trim()
   }
 
-  // P: = ชื่อเพจ (ใส่ทั้งก้อน)
-  for (const line of lines) {
+  // 5. P: = ชื่อเพจ (ทั้งก้อน)
+  for (const line of fixedLines) {
     const pM = line.match(/^P[:\s]+(.+)/i)
     if (pM) { result.salesChannel = pM[1].trim(); break }
   }
 
-  // @  หมายเหตุ (เช่น @ ฝากไว้หน้าบ้าน)
-  for (const line of lines) {
+  // 6. @ = หมายเหตุ
+  for (const line of fixedLines) {
     const atM = line.match(/^@\s*(.+)/i)
-    if (atM) {
-      result.remark = result.remark ? result.remark + ' | ' + atM[1].trim() : atM[1].trim()
-      break
-    }
+    if (atM) { result.remark = atM[1].trim(); break }
   }
 
-  // ตำบล/อำเภอ/จังหวัด
-  const tdMatch = all.match(/(?:ต\.|ตำบล)\s*([ก-๙ะ-์]+?)(?=\s|อ\.|อำเภอ|จ\.|จังหวัด|\d|$)/u)
+  // 7. ตำบล/อำเภอ/จังหวัด — ต้องมี space/ขึ้นบรรทัดก่อน ต./อ./จ.
+  const tdMatch = all.match(/(?:^|\s)(?:ต\.|ตำบล)\s*([ก-๙ะ-์]+?)(?=\s|อ\.|อำเภอ|จ\.|จังหวัด|\d|$)/u)
   if (tdMatch) result.subDistrict = tdMatch[1]
-  const dtMatch = all.match(/(?:อ\.|อำเภอ)\s*([ก-๙ะ-์]+?)(?=\s|จ\.|จังหวัด|\d|$)/u)
+  const dtMatch = all.match(/(?:^|\s)(?:อ\.|อำเภอ)\s*([ก-๙ะ-์]+?)(?=\s|จ\.|จังหวัด|\d|$)/u)
   if (dtMatch) result.district = dtMatch[1]
-  const provMatch = all.match(/(?:จ\.|จังหวัด)\s*([ก-๙ะ-์]+?)(?=\s|\d|$)/u)
+  const provMatch = all.match(/(?:^|\s)(?:จ\.|จังหวัด)\s*([ก-๙ะ-์]+?)(?=\s|\d|$)/u)
   if (provMatch) result.province = provMatch[1]
 
-  if (result.zipCode && !result.subDistrict) {
-    const matched = addressData.filter(a => a.z === result.zipCode)
-    if (matched.length > 0) {
-      const best = matched.find(a => all.includes(a.s)) || matched[0]
-      result.subDistrict = best.s; result.district = best.d; result.province = best.p
+  // 8. Lookup จาก address data — เติม zip/ตำบล/อำเภอ/จังหวัด ที่ขาด
+  if (addressData.length > 0) {
+    if (result.zipCode && !result.subDistrict) {
+      const matched = addressData.filter(a => a.z === result.zipCode)
+      if (matched.length > 0) { const best = matched.find(a => all.includes(a.s)) || matched[0]; result.subDistrict = best.s; result.district = best.d; result.province = best.p }
+    }
+    if (!result.zipCode && result.subDistrict) {
+      const found = addressData.find(a => a.s === result.subDistrict && (result.district ? a.d.includes(result.district) : true))
+      if (found) { result.zipCode = found.z; if (!result.district) result.district = found.d; if (!result.province) result.province = found.p }
+    }
+    if (result.zipCode && !result.province) { const m = addressData.find(a => a.z === result.zipCode); if (m) result.province = m.p }
+    if (!result.zipCode && !result.subDistrict && result.district) {
+      const found = addressData.find(a => a.d.includes(result.district))
+      if (found) { result.zipCode = found.z; result.subDistrict = found.s; if (!result.province) result.province = found.p }
+    }
+    // zip ผิด → ลอง verify กับ ตำบล+อำเภอ แล้วแก้ให้ถูก
+    if (result.subDistrict && result.zipCode) {
+      const verify = addressData.find(a => a.s === result.subDistrict && a.z === result.zipCode)
+      if (!verify) {
+        const correct = addressData.find(a => a.s === result.subDistrict && (result.district ? a.d.includes(result.district) : true))
+        if (correct) { result.zipCode = correct.z; result.district = correct.d; result.province = correct.p }
+      }
     }
   }
-  if (result.zipCode && !result.province) {
-    const m = addressData.find(a => a.z === result.zipCode)
-    if (m) result.province = m.p
+
+  // 9. ชื่อ
+  const skipRe = /\d{3,}|ม\.|ต\.|ตำบล|อ\.|อำเภอ|จ\.|จังหวัด|COD|FB|^P:|^R\d|^@|Line:|หมู่|ซอย|ถนน|บ้านเลขที่|โทร/i
+
+  // 9a. บรรทัด ชื่อ.xxx
+  for (const line of fixedLines) {
+    const nameM = line.match(/^ชื่อ[.\s:]+(.+)/i)
+    if (nameM) { result.customerName = nameM[1].trim(); break }
   }
 
-  // ชื่อ + ที่อยู่ detection
-  const skipRe = /\d{3,}|ม\.|ต\.|ตำบล|อ\.|อำเภอ|จ\.|จังหวัด|COD|FB|^P:|^R\d|^@|Line:|หมู่|ซอย|ถนน/i
-
-  // กรณี 1: ชื่อ+ที่อยู่อยู่บรรทัดเดียวกัน เช่น "นายเดชา สิทธิพรมมา 33/1 หมู่ 3 ต.กลางดง"
-  // Pattern: ชื่อไทย (ไม่มีตัวเลข) → เว้นวรรค → ตัวเลข (เริ่มที่อยู่)
-  for (const line of lines) {
-    if (/^@|^FB|^P:|^R\d|^Line|^COD/i.test(line)) continue
-    const nameAddrSplit = line.match(/^([ก-๙ะ-์\s]{4,40}?)\s+(\d.+)/)
-    if (nameAddrSplit) {
-      const namePart = nameAddrSplit[1].trim()
-      const addrPart = nameAddrSplit[2].trim()
-      // ตรวจว่า namePart เป็นชื่อจริง (ไม่ใช่ ต. อ. จ.)
-      if (namePart.length >= 3 && !/ต\.|อ\.|จ\.|ม\.|หมู่|ซอย|ถนน/.test(namePart)) {
-        if (!result.customerName) result.customerName = namePart
-        if (!result.customerAddress) {
-          let addr = addrPart
+  // 9b. ชื่อ+ที่อยู่บรรทัดเดียว
+  if (!result.customerName) {
+    for (const line of fixedLines) {
+      if (/^@|^FB|^P:|^R\d|^Line|^COD|^โทร|^ชื่อ/i.test(line)) continue
+      const split = line.match(/^([ก-๙ะ-์\s]{4,40}?)\s+(\d.+)/)
+      if (split) {
+        const n = split[1].trim()
+        if (n.length >= 3 && !/ต\.|อ\.|จ\.|ม\.|หมู่|ซอย|ถนน|บ้าน/.test(n)) {
+          result.customerName = n
+          let addr = split[2].trim()
           if (result.subDistrict) addr = addr.replace(new RegExp('(?:ต\\.|ตำบล)\\s*' + result.subDistrict, 'g'), '')
           if (result.district) addr = addr.replace(new RegExp('(?:อ\\.|อำเภอ)\\s*' + result.district, 'g'), '')
           addr = addr.replace(/จ[.\s]*[ก-๙ะ-์]+/gu, '').replace(/\d{5}/, '').replace(/[,.\s]+$/, '').trim()
-          if (addr.length >= 3) result.customerAddress = addr
+          if (addr.length >= 3 && !result.customerAddress) result.customerAddress = addr
+          break
         }
-        break
       }
     }
   }
 
-  // กรณี 2: ชื่ออยู่บรรทัดแยก (บรรทัดแรกเป็นชื่อล้วน)
-  if (!result.customerName && lines.length > 0) {
-    const first = lines[0]
-    if (first.length >= 3 && first.length <= 50 && !skipRe.test(first) && /[ก-๙]/.test(first) && !/\d{5}/.test(first)) {
-      result.customerName = first.trim()
-    }
-  }
-
-  // กรณี 3: หาจากบรรทัดอื่น
+  // 9c. บรรทัดแรกที่เป็นชื่อล้วน
   if (!result.customerName) {
-    for (const line of lines) {
+    for (const line of fixedLines) {
       if (line.length >= 3 && line.length <= 50 && !skipRe.test(line) && /[ก-๙]/.test(line) && !/\d{5}/.test(line)) {
-        result.customerName = line.trim(); break
+        result.customerName = line.replace(/^ชื่อ[.\s:]+/i, '').trim(); break
       }
     }
   }
 
-  // ที่อยู่ (ถ้ายังไม่เจอจากกรณี 1)
+  // 10. ที่อยู่ — รวมบรรทัดที่มี บ้านเลขที่/ซอย/หมู่
   if (!result.customerAddress) {
-    for (const line of lines) {
-      if (/\d/.test(line) && /[ก-๙]/.test(line)) {
-        if (/^0[689]|^COD|^FB|^P:|^R\d|^@|^Line/i.test(line)) continue
-        if (line === result.customerName) continue
-        let addr = line.trim()
-        // ตัดชื่อออกถ้าอยู่บรรทัดเดียวกัน
-        if (result.customerName && addr.startsWith(result.customerName)) {
-          addr = addr.substring(result.customerName.length).trim()
-        }
+    const addrParts = []
+    for (const line of fixedLines) {
+      if (/^@|^FB|^P:|^R\d|^Line|^COD|^โทร|^ชื่อ/i.test(line)) continue
+      if (line === result.customerName) continue
+      if (/บ้านเลขที่|บ้านเลข|\d+\/\d|ซอย|ซ\.|หมู่|ม\.|ถนน|ถ\./.test(line)) {
+        let addr = line
         if (result.subDistrict) addr = addr.replace(new RegExp('(?:ต\\.|ตำบล)\\s*' + result.subDistrict, 'g'), '')
         if (result.district) addr = addr.replace(new RegExp('(?:อ\\.|อำเภอ)\\s*' + result.district, 'g'), '')
         addr = addr.replace(/จ[.\s]*[ก-๙ะ-์]+/gu, '').replace(/\d{5}/, '').replace(/[,.\s]+$/, '').trim()
-        if (addr.length >= 3) { result.customerAddress = addr; break }
+        if (addr.length >= 2) addrParts.push(addr)
       }
     }
+    if (addrParts.length > 0) result.customerAddress = addrParts.join(' ')
   }
 
-  if (!result.customerName && lines.length === 1 && result.customerPhone) {
-    const after = all.replace(/0[689][\d\s-]{8,12}/, '').trim()
+  // 11. Fallback
+  if (!result.customerName && fixedLines.length === 1 && result.customerPhone) {
+    const after = all.replace(/(?:โทร)?\s*0[689][\d\s-]{8,12}/, '').trim()
     const nm = after.match(/^([\s\u0E00-\u0E7F]{2,30})/)
-    if (nm) {
-      result.customerName = nm[1].trim()
-      let rest = after.substring(nm[0].length).replace(/\d{5}/, '').trim()
-      if (rest.length > 3) result.customerAddress = rest
-    }
+    if (nm) { result.customerName = nm[1].trim(); let rest = after.substring(nm[0].length).replace(/\d{5}/, '').trim(); if (rest.length > 3) result.customerAddress = rest }
   }
 
   return result
@@ -219,18 +224,31 @@ export default function EmployeeApp({ profile, onLogout }) {
 
   // โหลด addresses + orders
   useEffect(() => {
-    getAddresses().then(setAddresses)
-    supabase.from('orders').select('*').eq('team_id', profile.team_id).order('created_at', { ascending: false }).limit(100)
-      .then(({ data }) => setOrders(data || []))
+    getAddresses().then(setAddresses).catch(() => {})
+
+    // ดึง orders ของทีม (ถ้ามี team_id)
+    const fetchOrders = async () => {
+      try {
+        let q = supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(100)
+        if (profile.team_id) q = q.eq('team_id', profile.team_id)
+        else q = q.eq('employee_id', profile.id)
+        const { data } = await q
+        setOrders(data || [])
+      } catch {}
+    }
+    fetchOrders()
 
     // Realtime
-    const ch = supabase.channel('emp-orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+    const ch = supabase.channel('emp-orders-' + profile.id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
       (payload) => {
-        if (payload.new.team_id === profile.team_id) setOrders(prev => [payload.new, ...prev])
+        const o = payload.new
+        if ((profile.team_id && o.team_id === profile.team_id) || o.employee_id === profile.id) {
+          setOrders(prev => [o, ...prev])
+        }
       }
     ).subscribe()
     return () => supabase.removeChannel(ch)
-  }, [profile.team_id])
+  }, [profile.id, profile.team_id])
 
   const set = (k) => (e) => {
     setForm(p => ({ ...p, [k]: e.target.value }))
@@ -261,8 +279,13 @@ export default function EmployeeApp({ profile, onLogout }) {
   const handleDateChange = async (d) => {
     setDateFilter(d)
     if (d) {
-      const { data } = await supabase.from('orders').select('*').eq('order_date', d).eq('team_id', profile.team_id).order('daily_seq')
-      setDateOrders(data || [])
+      try {
+        let q = supabase.from('orders').select('*').eq('order_date', d).order('daily_seq')
+        if (profile.team_id) q = q.eq('team_id', profile.team_id)
+        else q = q.eq('employee_id', profile.id)
+        const { data } = await q
+        setDateOrders(data || [])
+      } catch { setDateOrders([]) }
     } else setDateOrders(null)
   }
 
