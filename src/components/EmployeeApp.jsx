@@ -1,12 +1,20 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Empty, LiveDot } from './ui'
-import addressData from '../data/addresses.json'
+
+// โหลด addresses แบบ lazy — ไม่บล็อคหน้าเว็บ
+let _addrCache = null
+async function getAddresses() {
+  if (_addrCache) return _addrCache
+  const mod = await import('../data/addresses.json')
+  _addrCache = mod.default
+  return _addrCache
+}
 
 // ════════════════════════════════════════════
 //  Smart Paste Parser
 // ════════════════════════════════════════════
-function parseSmartPaste(text) {
+function parseSmartPaste(text, addressData = []) {
   const result = {}
   const lines = text.split('\n').map(s => s.trim()).filter(Boolean)
   const all = lines.join(' ')
@@ -151,7 +159,7 @@ function validatePhone(phone) {
   return { valid: true, msg: '✅' }
 }
 
-function AddressSearch({ onSelect, currentValue }) {
+function AddressSearch({ onSelect, currentValue, addresses = [] }) {
   const [query, setQuery] = useState(currentValue || '')
   const [results, setResults] = useState([])
   const [show, setShow] = useState(false)
@@ -159,7 +167,7 @@ function AddressSearch({ onSelect, currentValue }) {
   const search = (q) => {
     setQuery(q)
     if (q.length < 2) { setResults([]); return }
-    setResults(addressData.filter(a => a.s.includes(q) || a.d.includes(q) || a.p.includes(q) || a.z.includes(q)).slice(0, 8))
+    setResults(addresses.filter(a => a.s.includes(q) || a.d.includes(q) || a.p.includes(q) || a.z.includes(q)).slice(0, 8))
     setShow(true)
   }
   return (
@@ -205,6 +213,10 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByD
   const [toast, setToast] = useState(null)
   const [pasteDetected, setPasteDetected] = useState(false)
   const [pasteText, setPasteText] = useState('')
+  const [addresses, setAddresses] = useState([])
+
+  // โหลด addresses เมื่อ component mount
+  useEffect(() => { getAddresses().then(setAddresses) }, [])
 
   const set = (k) => (e) => {
     setForm(p => ({ ...p, [k]: e.target.value }))
@@ -281,7 +293,7 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByD
                   if (pasted && pasted.length >= 10) {
                     e.preventDefault()
                     setPasteText(pasted)
-                    const p = parseSmartPaste(pasted)
+                    const p = parseSmartPaste(pasted, addresses)
                     setForm(prev => ({
                       ...prev,
                       customerPhone: p.customerPhone || prev.customerPhone, customerName: p.customerName || prev.customerName,
@@ -307,7 +319,7 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByD
               {pasteText && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <Btn sm grad={T.grad1} onClick={() => {
-                    const p = parseSmartPaste(pasteText)
+                    const p = parseSmartPaste(pasteText, addresses)
                     setForm(prev => ({
                       ...prev,
                       customerPhone: p.customerPhone || prev.customerPhone, customerName: p.customerName || prev.customerName,
@@ -328,7 +340,7 @@ export default function EmployeeApp({ profile, orders, onCreateOrder, onFetchByD
             <FI label="👤 ชื่อลูกค้า *" value={form.customerName} onChange={set('customerName')} placeholder="คุณลูกค้า" />
             <FI label="📍 ที่อยู่ *" value={form.customerAddress} onChange={set('customerAddress')} placeholder="29 หมู่ที่ 1 ถนน..." />
 
-            <AddressSearch onSelect={handleAddressSelect} currentValue={form.subDistrict ? `${form.subDistrict} > ${form.district} > ${form.province} ${form.zipCode}` : ''} />
+            <AddressSearch onSelect={handleAddressSelect} addresses={addresses} currentValue={form.subDistrict ? `${form.subDistrict} > ${form.district} > ${form.province} ${form.zipCode}` : ''} />
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <FI label="ตำบล" value={form.subDistrict} onChange={set('subDistrict')} placeholder="ตำบล" />

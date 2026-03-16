@@ -11,7 +11,7 @@ export function useOrders({ teamId = null, employeeId = null } = {}) {
       .from('orders')
       .select('*, profiles(full_name, team_id)')
       .order('created_at', { ascending: false })
-      .limit(300)
+      .limit(100)
 
     if (teamId) query = query.eq('team_id', teamId)
     if (employeeId) query = query.eq('employee_id', employeeId)

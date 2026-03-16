@@ -1,10 +1,12 @@
+import { lazy, Suspense } from 'react'
 import { GlobalStyles, T } from './components/ui'
 import { useAuth } from './hooks/useAuth'
 import { useOrders } from './hooks/useOrders'
 import { useTeams } from './hooks/useTeams'
 import LoginPage from './components/LoginPage'
-import ManagerApp from './components/ManagerApp'
-import EmployeeApp from './components/EmployeeApp'
+
+const ManagerApp = lazy(() => import('./components/ManagerApp'))
+const EmployeeApp = lazy(() => import('./components/EmployeeApp'))
 
 function LoadingScreen() {
   return (
@@ -34,24 +36,28 @@ export default function App() {
   if (isManager) {
     return (
       <><GlobalStyles />
-        <ManagerApp
-          profile={profile} orders={orders} teams={teams}
-          onCreateTeam={createTeam} onUpdateTeam={updateTeam} onDeleteTeam={deleteTeam}
-          onCreateUser={createUser} onUpdateProfile={updateProfile}
-          onFetchProfiles={fetchAllProfiles} onFetchByDate={fetchOrdersByDate}
-          onSignOut={signOut}
-        />
+        <Suspense fallback={<LoadingScreen />}>
+          <ManagerApp
+            profile={profile} orders={orders} teams={teams}
+            onCreateTeam={createTeam} onUpdateTeam={updateTeam} onDeleteTeam={deleteTeam}
+            onCreateUser={createUser} onUpdateProfile={updateProfile}
+            onFetchProfiles={fetchAllProfiles} onFetchByDate={fetchOrdersByDate}
+            onSignOut={signOut}
+          />
+        </Suspense>
       </>
     )
   }
 
   return (
     <><GlobalStyles />
-      <EmployeeApp
-        profile={profile} orders={orders}
-        onCreateOrder={createOrder} onFetchByDate={fetchOrdersByDate}
-        onSignOut={signOut}
-      />
+      <Suspense fallback={<LoadingScreen />}>
+        <EmployeeApp
+          profile={profile} orders={orders}
+          onCreateOrder={createOrder} onFetchByDate={fetchOrdersByDate}
+          onSignOut={signOut}
+        />
+      </Suspense>
     </>
   )
 }
