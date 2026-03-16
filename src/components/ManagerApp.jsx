@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../lib/supabase'
-import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Modal, Empty, LiveDot } from './ui'
+import { T, glass, fmt, fmtDate, fmtDateFull, fmtDateTime, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Modal, Empty, LiveDot } from './ui'
 
 function FI({ label, ...p }) {
   return <div style={{ marginBottom: 14 }}>{label && <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 6 }}>{label}</label>}<input {...p} style={{ width: '100%', padding: '13px 16px', borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.text, fontSize: 15, fontFamily: T.font, outline: 'none', boxSizing: 'border-box', ...(p.style||{}) }} /></div>
@@ -26,11 +26,8 @@ export default function ManagerApp({ profile, onLogout }) {
   const [userForm, setUserForm] = useState({ email: '', password: '', fullName: '', role: 'employee', teamId: '' })
   const [editUser, setEditUser] = useState(null)
   const [editUserTeam, setEditUserTeam] = useState('')
-  const DEFAULT_SHEET = 'https://script.google.com/macros/s/AKfycbxPoooGWacm6H1SAjvj_AN1qdp6-Qe7a1vdpwFzha22980Whru_abzfty0Uenv4pD_Ppg/exec'
-  const [sheetUrl, setSheetUrlState] = useState(localStorage.getItem('saleshub_sheet_url') || DEFAULT_SHEET)
-  const setSheetUrl = (v) => { setSheetUrlState(v); sheetUrlRef.current = v; localStorage.setItem('saleshub_sheet_url', v) }
+  const SHEET_URL = 'https://script.google.com/macros/s/AKfycbxPoooGWacm6H1SAjvj_AN1qdp6-Qe7a1vdpwFzha22980Whru_abzfty0Uenv4pD_Ppg/exec'
   const [syncing, setSyncing] = useState(false)
-  const [showSheetSetup, setShowSheetSetup] = useState(false)
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 3000) }
 
@@ -62,7 +59,6 @@ export default function ManagerApp({ profile, onLogout }) {
   }
 
   // ═══ Sync to Google Sheets (รูปแบบ ProShip) ═══
-  const sheetUrlRef = useRef(sheetUrl)
   const orderToRow = (o) => ({
     phone: o.customer_phone, name: o.customer_name, address: o.customer_address,
     sub_district: o.sub_district, district: o.district, zip: o.zip_code,
@@ -73,10 +69,10 @@ export default function ManagerApp({ profile, onLogout }) {
   })
 
   const syncToGoogleSheet = async (data) => {
-    if (!sheetUrl) { setShowSheetSetup(true); return }
+    if (!SHEET_URL) return
     setSyncing(true)
     try {
-      await fetch(sheetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
+      await fetch(SHEET_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'sync', orders: data.map(orderToRow) }) })
       flash('✅ Sync ไป Google Sheet แล้ว!')
     } catch (e) { flash('❌ ' + e.message) }
@@ -85,7 +81,7 @@ export default function ManagerApp({ profile, onLogout }) {
 
   // sync 1 order (ใช้ตอน realtime)
   const syncOneToSheet = (order) => {
-    const url = sheetUrlRef.current
+    const url = SHEET_URL
     if (!url) return
     try { fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'sync', orders: [orderToRow(order)] }) }) } catch {}
@@ -93,8 +89,8 @@ export default function ManagerApp({ profile, onLogout }) {
 
   // ลบจาก sheet
   const deleteFromSheet = (orderNumber) => {
-    if (!sheetUrl) return
-    try { fetch(sheetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
+    if (!SHEET_URL) return
+    try { fetch(SHEET_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', order_number: orderNumber }) }) } catch {}
   }
 
@@ -143,7 +139,7 @@ export default function ManagerApp({ profile, onLogout }) {
         setProfiles(profilesRes.data || [])
 
         // Auto Sync ไป Sheet ทุกครั้งที่เปิดแอป
-        const url = sheetUrlRef.current
+        const url = SHEET_URL
         if (url && loadedOrders.length > 0) {
           try {
             const profs = profilesRes.data || []
@@ -453,6 +449,7 @@ export default function ManagerApp({ profile, onLogout }) {
                   </div>
                 </div>
                 <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} {o.sales_channel && `· 📦 ${o.sales_channel}`} · 👤 {o.employee_name || profiles.find(p=>p.id===o.employee_id)?.full_name || '—'}</div>
+                <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>🕐 {fmtDateTime(o.created_at)}</div>
                 {o.remark && <div style={{ fontSize: 11, color: T.textDim }}>💬 {o.remark}</div>}
                 {o.slip_url && <a href={o.slip_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(45,138,78,0.06)', border: '1px solid rgba(45,138,78,0.15)', fontSize: 11, color: T.success, fontWeight: 600, textDecoration: 'none' }}>🧾 ดูสลิป</a>}
               </div>
@@ -503,6 +500,7 @@ export default function ManagerApp({ profile, onLogout }) {
                     <div style={{ textAlign: 'right' }}><div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div></div>
                   </div>
                   <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} · 👤 {o.employee_name || profiles.find(p=>p.id===o.employee_id)?.full_name || '—'}</div>
+                  <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>🕐 {fmtDateTime(o.created_at)}</div>
                   {o.remark && <div style={{ fontSize: 11, color: T.textDim }}>💬 {o.remark}</div>}
                 </div>
               ))}
@@ -573,124 +571,28 @@ export default function ManagerApp({ profile, onLogout }) {
         {/* ══ BACKUP ══ */}
         {tab === 'backup' && <>
           <div style={{ ...glass, padding: 20, marginBottom: 14 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>💾 Backup ข้อมูลไป Google Sheet</div>
-            <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>ส่งออเดอร์ทั้งหมดไป Google Sheet อัตโนมัติ</div>
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>💾 Google Sheet Backup</div>
+            <div style={{ fontSize: 12, color: T.success, marginBottom: 16 }}>✅ เชื่อมต่อแล้ว — Sync อัตโนมัติทุกออเดอร์ใหม่</div>
 
-            {/* Google Sheet URL Setup */}
-            <div style={{ padding: 16, borderRadius: T.radiusSm, background: T.surfaceAlt, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>🔗 Google Apps Script URL</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
-                  placeholder="https://script.google.com/macros/s/xxx/exec"
-                  style={{ flex: 1, padding: '11px 14px', borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: '#fff', color: T.text, fontSize: 13, fontFamily: T.font, outline: 'none', boxSizing: 'border-box' }} />
-                {sheetUrl && <Btn sm grad={T.grad2} onClick={() => syncToGoogleSheet(orders)} disabled={syncing}>{syncing ? '⏳...' : '🔄 Sync'}</Btn>}
-              </div>
-              {sheetUrl && <div style={{ fontSize: 11, color: T.success, marginTop: 6 }}>✅ เชื่อมต่อแล้ว — กด Sync เพื่อส่งข้อมูล</div>}
-              {!sheetUrl && <div style={{ fontSize: 11, color: T.textMuted, marginTop: 6 }}>ยังไม่ได้ตั้งค่า — ดูวิธีด้านล่าง</div>}
-            </div>
-
-            {/* Quick Actions */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              <button onClick={() => syncToGoogleSheet(orders)} disabled={syncing || !sheetUrl} style={{
-                padding: '16px', borderRadius: T.radiusSm, border: `1px solid ${sheetUrl ? 'rgba(45,138,78,0.2)' : T.border}`,
-                background: sheetUrl ? 'rgba(45,138,78,0.04)' : T.surfaceAlt,
-                color: sheetUrl ? T.success : T.textMuted, fontSize: 14, fontWeight: 700,
-                cursor: sheetUrl ? 'pointer' : 'not-allowed', fontFamily: T.font, opacity: syncing ? 0.5 : 1,
+              <button onClick={() => syncToGoogleSheet(orders)} disabled={syncing} style={{
+                padding: '16px', borderRadius: T.radiusSm, border: '1px solid rgba(45,138,78,0.2)',
+                background: 'rgba(45,138,78,0.04)', color: T.success, fontSize: 14, fontWeight: 700,
+                cursor: 'pointer', fontFamily: T.font, opacity: syncing ? 0.5 : 1,
               }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>📊</div>
                 {syncing ? '⏳ กำลังส่ง...' : 'Sync ทั้งหมด'}
                 <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4 }}>{orders.length} ออเดอร์</div>
               </button>
-              <button onClick={() => exportCSV(orders, `saleshub-${new Date().toISOString().split('T')[0]}.csv`)} style={{
-                padding: '16px', borderRadius: T.radiusSm, border: `1px solid rgba(184,134,11,0.2)`,
+              <button onClick={() => exportCSV(orders, `adminmt-${new Date().toISOString().split('T')[0]}.csv`)} style={{
+                padding: '16px', borderRadius: T.radiusSm, border: '1px solid rgba(184,134,11,0.2)',
                 background: 'rgba(184,134,11,0.04)', color: T.gold, fontSize: 14, fontWeight: 700,
                 cursor: 'pointer', fontFamily: T.font,
               }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>📥</div>
                 ดาวน์โหลด CSV
-                <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4 }}>เปิดใน Google Sheet ได้</div>
+                <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4 }}>ProShip Flash format</div>
               </button>
-            </div>
-
-            {/* Sync เฉพาะวัน */}
-            {dateFilter && dateOrders && (
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                <Btn full onClick={() => syncToGoogleSheet(dateOrders)} disabled={syncing || !sheetUrl}>📊 Sync เฉพาะ {fmtDateFull(dateFilter)} ({dateOrders.length} ออเดอร์)</Btn>
-                <Btn full outline onClick={() => exportCSV(dateOrders, `saleshub-${dateFilter}.csv`)}>📥 CSV {fmtDateFull(dateFilter)}</Btn>
-              </div>
-            )}
-          </div>
-
-          {/* วิธีตั้งค่า Google Sheet */}
-          <div style={{ ...glass, padding: 20 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>📖 วิธีตั้งค่า Google Sheet (ทำครั้งเดียว)</div>
-            <div style={{ fontSize: 13, color: T.textDim, lineHeight: 2.2 }}>
-              <div style={{ padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-                <strong style={{ color: T.gold }}>ขั้นที่ 1</strong> — เปิด Google Sheet ใหม่
-              </div>
-              <div style={{ padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-                <strong style={{ color: T.gold }}>ขั้นที่ 2</strong> — กด <strong>ส่วนขยาย → Apps Script</strong>
-              </div>
-              <div style={{ padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-                <strong style={{ color: T.gold }}>ขั้นที่ 3</strong> — ลบโค้ดเดิม แล้ววางโค้ดนี้:
-              </div>
-              <div style={{ background: T.surfaceAlt, padding: 12, borderRadius: 8, margin: '8px 0', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.8, overflowX: 'auto', whiteSpace: 'pre-wrap', userSelect: 'all' }}>
-{`function doPost(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var data = JSON.parse(e.postData.contents);
-  var action = data.action || 'sync';
-
-  // ลบออเดอร์
-  if (action === 'delete') {
-    var lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return ContentService.createTextOutput('{"ok":true}');
-    var col = sheet.getRange(2,15,lastRow-1,1).getValues();
-    for (var i = col.length-1; i >= 0; i--) {
-      if (col[i][0] === data.order_number) sheet.deleteRow(i+2);
-    }
-    return ContentService.createTextOutput('{"ok":true}');
-  }
-
-  // Sync ออเดอร์
-  var orders = data.orders || [];
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['MobileNo*','Name','Address','SubDistrict','District','ZIP','FB/Line','SalesChannel','SalesPerson','SalePrice','COD*','Remark','Province','Slip','OrderID']);
-    var h = sheet.getRange(1,1,1,15);
-    h.setFontWeight('bold').setBackground('#B8860B').setFontColor('#FFFFFF');
-    sheet.setColumnWidth(14, 300);
-  }
-  var existing = {};
-  var lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    try { var col = sheet.getRange(2,15,lastRow-1,1).getValues();
-      col.forEach(function(r){ if(r[0]) existing[r[0]]=true; });
-    } catch(e) {}
-  }
-  var added = 0;
-  orders.forEach(function(o) {
-    if (!existing[o.order_number]) {
-      sheet.appendRow([o.phone,o.name,o.address,o.sub_district,o.district,o.zip,o.fb,o.channel,o.admin,o.price,o.cod,o.remark,o.province,'',o.order_number]);
-      if (o.slip) {
-        var row = sheet.getLastRow();
-        sheet.getRange(row,14).setFormula('=IMAGE("'+o.slip+'",1)');
-        sheet.setRowHeight(row, 200);
-      }
-      added++;
-    }
-  });
-  return ContentService.createTextOutput(JSON.stringify({ok:true,added:added}));
-}`}
-              </div>
-              <div style={{ padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-                <strong style={{ color: T.gold }}>ขั้นที่ 4</strong> — กด <strong>ทำให้ใช้งานได้ → การทำให้ใช้งานได้แบบใหม่</strong>
-                <div style={{ fontSize: 12, marginTop: 4 }}>• ประเภท: <strong>เว็บแอป</strong></div>
-                <div style={{ fontSize: 12 }}>• ผู้ที่มีสิทธิ์เข้าถึง: <strong>ทุกคน</strong></div>
-                <div style={{ fontSize: 12 }}>• กด <strong>ทำให้ใช้งานได้</strong> → อนุญาตสิทธิ์</div>
-              </div>
-              <div style={{ padding: '8px 0' }}>
-                <strong style={{ color: T.gold }}>ขั้นที่ 5</strong> — คัดลอก URL ที่ได้ มาวางในช่องด้านบน
-                <div style={{ fontSize: 12, marginTop: 4, color: T.textMuted }}>URL จะเป็น: https://script.google.com/macros/s/xxxx/exec</div>
-              </div>
             </div>
           </div>
         </>}

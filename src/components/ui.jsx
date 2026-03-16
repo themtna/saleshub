@@ -41,6 +41,7 @@ export const fmt = (n) => new Intl.NumberFormat('th-TH').format(Math.round(n))
 export const fmtDate = (d) => new Date(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
 export const fmtDateFull = (d) => new Date(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
 export const fmtTime = (d) => new Date(d).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+export const fmtDateTime = (d) => { const dt = new Date(d); return dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) + ' ' + dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.' }
 
 export const sameDay = (a, b) => {
   const x = new Date(a), y = new Date(b)

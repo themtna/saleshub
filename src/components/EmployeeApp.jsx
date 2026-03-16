@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../lib/supabase'
-import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Empty, LiveDot } from './ui'
+import { T, glass, fmt, fmtDate, fmtDateFull, fmtDateTime, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Empty, LiveDot } from './ui'
 
 // โหลด addresses แบบ lazy — ไม่บล็อคหน้าเว็บ
 let _addrCache = null
@@ -670,6 +670,7 @@ export default function EmployeeApp({ profile, onLogout }) {
                   <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
                 </div>
                 <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} {o.sales_channel && `· 📦 ${o.sales_channel}`} {o.remark && `· 💬 ${o.remark}`}</div>
+                <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>🕐 {fmtDateTime(o.created_at)}</div>
                 {o.slip_url && <a href={o.slip_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(45,138,78,0.06)', border: '1px solid rgba(45,138,78,0.15)', fontSize: 11, color: T.success, fontWeight: 600, textDecoration: 'none' }}>🧾 ดูสลิป</a>}
               </div>
             )
@@ -707,6 +708,7 @@ export default function EmployeeApp({ profile, onLogout }) {
                     <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
                   </div>
                   <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} {o.remark && `· 💬 ${o.remark}`}</div>
+                  <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>🕐 {fmtDateTime(o.created_at)}</div>
                 </div>
               )) : <Empty text="ไม่พบออเดอร์" />}
             </div>
