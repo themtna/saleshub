@@ -34,9 +34,9 @@ function parseSmartPaste(text, addressData = []) {
     if (parseInt(z) >= 10000 && parseInt(z) <= 96000) { result.zipCode = z; break }
   }
 
-  // 3. COD
-  const codMatch = all.match(/COD\s*[:\s]*(\d+)/i)
-  if (codMatch) result.amount = codMatch[1]
+  // 3. ยอดเงิน — จับจาก COD, ปลายทาง (รวมใน @ ด้วย)
+  const amtMatch = all.match(/(?:COD|ปลายทาง)\s*(\d+)/i)
+  if (amtMatch) result.amount = amtMatch[1]
 
   // 4. FB / Line
   for (const line of fixedLines) {
@@ -213,6 +213,7 @@ export default function EmployeeApp({ profile, onLogout }) {
   const [tab, setTab] = useState('create')
   const [form, setForm] = useState({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' })
   const [phoneError, setPhoneError] = useState('')
+  const [addressWarning, setAddressWarning] = useState('')
   const [dateFilter, setDateFilter] = useState('')
   const [dateOrders, setDateOrders] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -250,14 +251,66 @@ export default function EmployeeApp({ profile, onLogout }) {
     return () => supabase.removeChannel(ch)
   }, [profile.id, profile.team_id])
 
-  const set = (k) => (e) => {
-    setForm(p => ({ ...p, [k]: e.target.value }))
-    if (k === 'customerPhone') setPhoneError(validatePhone(e.target.value).valid ? '' : validatePhone(e.target.value).msg)
+  const validateAddress = (f) => {
+    const { subDistrict, district, zipCode, province } = f
+    if (!subDistrict && !district && !zipCode) { setAddressWarning(''); return }
+    if (addresses.length === 0) { setAddressWarning(''); return }
+
+    const msgs = []
+
+    // เช็คตำบล + อำเภอ
+    if (subDistrict && district) {
+      const m = addresses.find(a => a.s === subDistrict && a.d.includes(district))
+      if (!m) {
+        const correct = addresses.find(a => a.s === subDistrict)
+        msgs.push(`ตำบล "${subDistrict}" ไม่อยู่ในอำเภอ "${district}"${correct ? ' (ควรเป็น ' + correct.d + ')' : ''}`)
+      }
+    }
+
+    // เช็คตำบล + รหัส ปณ.
+    if (subDistrict && zipCode) {
+      const m = addresses.find(a => a.s === subDistrict && a.z === zipCode)
+      if (!m) {
+        const correct = addresses.find(a => a.s === subDistrict)
+        if (correct) msgs.push(`รหัส ปณ. ของ "${subDistrict}" ควรเป็น ${correct.z} ไม่ใช่ ${zipCode}`)
+      }
+    }
+
+    // เช็คอำเภอ + จังหวัด
+    if (district && province) {
+      const m = addresses.find(a => a.d.includes(district) && a.p === province)
+      if (!m) {
+        const correct = addresses.find(a => a.d.includes(district))
+        msgs.push(`อำเภอ "${district}" ไม่อยู่ใน "${province}"${correct ? ' (ควรเป็น ' + correct.p + ')' : ''}`)
+      }
+    }
+
+    // เช็ค รหัส ปณ. + จังหวัด
+    if (zipCode && province && !district) {
+      const m = addresses.find(a => a.z === zipCode && a.p === province)
+      if (!m) {
+        const correct = addresses.find(a => a.z === zipCode)
+        if (correct) msgs.push(`รหัส ปณ. "${zipCode}" อยู่ใน "${correct.p}" ไม่ใช่ "${province}"`)
+      }
+    }
+
+    setAddressWarning(msgs.length > 0 ? '⚠️ ' + msgs.join(' · ') : '')
   }
 
-  const handleAddressSelect = (a) => setForm(p => ({ ...p, subDistrict: a.s, district: a.d, zipCode: a.z, province: a.p }))
+  const set = (k) => (e) => {
+    const newForm = { ...form, [k]: e.target.value }
+    setForm(newForm)
+    if (k === 'customerPhone') setPhoneError(validatePhone(e.target.value).valid ? '' : validatePhone(e.target.value).msg)
+    if (['subDistrict', 'district', 'zipCode', 'province'].includes(k)) validateAddress(newForm)
+  }
 
-  const clearForm = () => { setForm({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' }); setPhoneError(''); setPasteText('') }
+  const handleAddressSelect = (a) => {
+    const newForm = { ...form, subDistrict: a.s, district: a.d, zipCode: a.z, province: a.p }
+    setForm(newForm)
+    setAddressWarning('') // เลือกจาก dropdown ถูกต้องเสมอ
+  }
+
+  const clearForm = () => { setForm({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' }); setPhoneError(''); setAddressWarning(''); setPasteText('') }
 
   const submit = async () => {
     if (!validatePhone(form.customerPhone).valid) { setToast('❌ เบอร์โทรไม่ถูกต้อง'); setTimeout(() => setToast(null), 2500); return }
@@ -353,6 +406,7 @@ export default function EmployeeApp({ profile, onLogout }) {
                       amount: p.amount || prev.amount, remark: p.remark || prev.remark,
                     }))
                     if (p.customerPhone) { const v = validatePhone(p.customerPhone); setPhoneError(v.valid ? '' : v.msg) }
+                    validateAddress({ subDistrict: p.subDistrict || form.subDistrict, district: p.district || form.district, zipCode: p.zipCode || form.zipCode, province: p.province || form.province })
                     setPasteDetected(true); setTimeout(() => setPasteDetected(false), 3000)
                     setToast('✅ Smart Paste สำเร็จ!'); setTimeout(() => setToast(null), 2500)
                   }
@@ -379,6 +433,7 @@ export default function EmployeeApp({ profile, onLogout }) {
                       amount: p.amount || prev.amount, remark: p.remark || prev.remark,
                     }))
                     if (p.customerPhone) { const v = validatePhone(p.customerPhone); setPhoneError(v.valid ? '' : v.msg) }
+                    validateAddress({ subDistrict: p.subDistrict || form.subDistrict, district: p.district || form.district, zipCode: p.zipCode || form.zipCode, province: p.province || form.province })
                     setToast('✅ แยกข้อมูลสำเร็จ!'); setTimeout(() => setToast(null), 2000)
                   }}>✨ แยกข้อมูล</Btn>
                   <Btn sm outline onClick={() => { setPasteText(''); clearForm() }}>🗑 ล้าง</Btn>
@@ -400,6 +455,14 @@ export default function EmployeeApp({ profile, onLogout }) {
               <FI label="รหัส ปณ." value={form.zipCode} onChange={set('zipCode')} placeholder="10500" />
               <FI label="จังหวัด" value={form.province} onChange={set('province')} placeholder="กรุงเทพ" />
             </div>
+            {addressWarning && (
+              <div style={{ padding: '10px 14px', borderRadius: T.radiusSm, marginBottom: 14, background: 'rgba(214,48,49,0.05)', border: '1px solid rgba(214,48,49,0.15)', fontSize: 12, color: T.danger, lineHeight: 1.7 }}>
+                {addressWarning}
+              </div>
+            )}
+            {form.subDistrict && !addressWarning && addresses.length > 0 && (
+              <div style={{ fontSize: 11, color: T.success, marginTop: -10, marginBottom: 14 }}>✅ ที่อยู่ถูกต้อง</div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <FI label="📘 ชื่อเฟสบุค" value={form.customerSocial} onChange={set('customerSocial')} placeholder="ชื่อ Facebook" />
               <FI label="📦 ชื่อเพจ (จาก P:)" value={form.salesChannel} onChange={set('salesChannel')} placeholder="เช่น ครีมหลงเลย หน้าขาว เพจหลักบริษัท" />
