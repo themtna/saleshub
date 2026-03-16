@@ -81,7 +81,7 @@ function Splash({ text }) {
     <div style={{ fontFamily: T.font, minHeight: '100vh', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.text }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ width: 64, height: 64, borderRadius: 18, margin: '0 auto 16px', background: T.grad1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, animation: 'livePulse 1.5s infinite' }}>⚡</div>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>{text || 'SalesHub'}</div>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>{text || 'ADMIN THE MT'}</div>
       </div>
     </div>
   )

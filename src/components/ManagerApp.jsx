@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { T, glass, fmt, fmtDate, fmtDateFull, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Modal, Empty, LiveDot } from './ui'
@@ -26,7 +26,8 @@ export default function ManagerApp({ profile, onLogout }) {
   const [userForm, setUserForm] = useState({ email: '', password: '', fullName: '', role: 'employee', teamId: '' })
   const [editUser, setEditUser] = useState(null)
   const [editUserTeam, setEditUserTeam] = useState('')
-  const [sheetUrl, setSheetUrl] = useState(localStorage.getItem('saleshub_sheet_url') || '')
+  const [sheetUrl, setSheetUrlState] = useState(localStorage.getItem('saleshub_sheet_url') || '')
+  const setSheetUrl = (v) => { setSheetUrlState(v); sheetUrlRef.current = v; localStorage.setItem('saleshub_sheet_url', v) }
   const [syncing, setSyncing] = useState(false)
   const [showSheetSetup, setShowSheetSetup] = useState(false)
 
@@ -34,7 +35,7 @@ export default function ManagerApp({ profile, onLogout }) {
 
   // ═══ Export CSV (รูปแบบ ProShip Flash) ═══
   const exportCSV = (data, filename) => {
-    const headers = ['MobileNo*\nเบอร์มือถือ','Name\nชื่อ','Address\nที่อยู่','SubDistrict\nตำบล','District\nอำเภอ','ZIP\nรหัส ปณ.','Customer FB/Line\nเฟส/ไลน์ลูกค้า','SalesChannel\nช่องทางจำหน่าย','SalesPerson\nชื่อแอดมิน','SalePrice\nราคาขาย','COD*\nยอดเก็บเงินปลายทาง','Remark\nหมายเหตุ']
+    const headers = ['MobileNo*\nเบอร์มือถือ','Name\nชื่อ','Address\nที่อยู่','SubDistrict\nตำบล','District\nอำเภอ','ZIP\nรหัส ปณ.','Customer FB/Line\nเฟส/ไลน์ลูกค้า','SalesChannel\nช่องทางจำหน่าย','SalesPerson\nชื่อแอดมิน','SalePrice\nราคาขาย','COD*\nยอดเก็บเงินปลายทาง','Remark\nหมายเหตุ','Province\nจังหวัด','Slip\nสลิปโอนเงิน']
     const rows = data.map(o => [
       o.customer_phone,
       o.customer_name,
@@ -48,6 +49,8 @@ export default function ManagerApp({ profile, onLogout }) {
       o.sale_price,
       o.cod_amount,
       o.remark,
+      o.province || '',
+      o.slip_url || '',
     ])
     const csv = '\uFEFF' + [headers, ...rows].map(r => r.map(c => `"${String(c||'').replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -58,33 +61,70 @@ export default function ManagerApp({ profile, onLogout }) {
   }
 
   // ═══ Sync to Google Sheets (รูปแบบ ProShip) ═══
+  const sheetUrlRef = useRef(sheetUrl)
+  const orderToRow = (o) => ({
+    phone: o.customer_phone, name: o.customer_name, address: o.customer_address,
+    sub_district: o.sub_district, district: o.district, zip: o.zip_code,
+    fb: o.customer_social, channel: o.sales_channel,
+    admin: o.employee_name || profiles.find(p => p.id === o.employee_id)?.full_name || '',
+    price: o.sale_price, cod: o.cod_amount, remark: o.remark,
+    province: o.province || '', slip: o.slip_url || '', order_number: o.order_number,
+  })
+
   const syncToGoogleSheet = async (data) => {
     if (!sheetUrl) { setShowSheetSetup(true); return }
     setSyncing(true)
     try {
-      const rows = data.map(o => ({
-        phone: o.customer_phone,
-        name: o.customer_name,
-        address: o.customer_address,
-        sub_district: o.sub_district,
-        district: o.district,
-        zip: o.zip_code,
-        fb: o.customer_social,
-        channel: o.sales_channel,
-        admin: o.employee_name || profiles.find(p => p.id === o.employee_id)?.full_name || '',
-        price: o.sale_price,
-        cod: o.cod_amount,
-        remark: o.remark,
-        order_number: o.order_number,
-      }))
-      await fetch(sheetUrl, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders: rows }),
-      })
-      flash('✅ ส่งข้อมูลไป Google Sheet แล้ว!')
-    } catch (e) { flash('❌ ส่งไม่สำเร็จ: ' + e.message) }
+      await fetch(sheetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync', orders: data.map(orderToRow) }) })
+      flash('✅ Sync ไป Google Sheet แล้ว!')
+    } catch (e) { flash('❌ ' + e.message) }
     setSyncing(false)
+  }
+
+  // sync 1 order (ใช้ตอน realtime)
+  const syncOneToSheet = (order) => {
+    const url = sheetUrlRef.current
+    if (!url) return
+    try { fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'sync', orders: [orderToRow(order)] }) }) } catch {}
+  }
+
+  // ลบจาก sheet
+  const deleteFromSheet = (orderNumber) => {
+    if (!sheetUrl) return
+    try { fetch(sheetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', order_number: orderNumber }) }) } catch {}
+  }
+
+  // ═══ ลบออเดอร์ ═══
+  const deleteOrder = async (order) => {
+    if (!confirm(`ลบออเดอร์ "${order.order_number} - ${order.customer_name}"?`)) return
+    const { error } = await supabase.from('orders').delete().eq('id', order.id)
+    if (error) { flash('❌ ' + error.message); return }
+    setOrders(prev => prev.filter(o => o.id !== order.id))
+    if (dateOrders) setDateOrders(prev => prev.filter(o => o.id !== order.id))
+    deleteFromSheet(order.order_number)
+    flash('🗑 ลบออเดอร์สำเร็จ')
+  }
+
+  // ═══ แก้ไขออเดอร์ ═══
+  const [editOrder, setEditOrder] = useState(null)
+  const saveOrder = async () => {
+    if (!editOrder) return
+    const { id, ...updates } = editOrder
+    const { error } = await supabase.from('orders').update({
+      customer_phone: updates.customer_phone, customer_name: updates.customer_name,
+      customer_address: updates.customer_address, sub_district: updates.sub_district,
+      district: updates.district, zip_code: updates.zip_code, province: updates.province,
+      customer_social: updates.customer_social, sales_channel: updates.sales_channel,
+      sale_price: updates.sale_price, cod_amount: updates.cod_amount, remark: updates.remark,
+    }).eq('id', id)
+    if (error) { flash('❌ ' + error.message); return }
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o))
+    if (dateOrders) setDateOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o))
+    setEditOrder(null)
+    flash('✅ แก้ไขออเดอร์สำเร็จ')
   }
 
   // ═══ โหลดข้อมูลทั้งหมด ═══
@@ -103,10 +143,18 @@ export default function ManagerApp({ profile, onLogout }) {
     }
     load()
 
-    // Realtime
-    const ch = supabase.channel('mgr-orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
-      (payload) => { setOrders(prev => [payload.new, ...prev]) }
-    ).subscribe()
+    // Realtime — auto sync to sheet
+    const ch = supabase.channel('mgr-orders')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+        (payload) => {
+          setOrders(prev => [payload.new, ...prev])
+          syncOneToSheet(payload.new) // auto sync ไป sheet
+        }
+      )
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' },
+        (payload) => { setOrders(prev => prev.filter(o => o.id !== payload.old.id)) }
+      )
+      .subscribe()
     return () => supabase.removeChannel(ch)
   }, [])
 
@@ -203,10 +251,36 @@ export default function ManagerApp({ profile, onLogout }) {
     <div style={{ fontFamily: T.font, minHeight: '100vh', background: T.bg, color: T.text, paddingBottom: 40 }}>
       <Toast message={toast} />
 
+      {/* Edit Order Modal */}
+      <Modal show={!!editOrder} onClose={() => setEditOrder(null)} title="✏️ แก้ไขออเดอร์">
+        {editOrder && <>
+          <FI label="ชื่อลูกค้า" value={editOrder.customer_name} onChange={e => setEditOrder(p=>({...p,customer_name:e.target.value}))} />
+          <FI label="เบอร์โทร" value={editOrder.customer_phone} onChange={e => setEditOrder(p=>({...p,customer_phone:e.target.value}))} />
+          <FI label="ที่อยู่" value={editOrder.customer_address} onChange={e => setEditOrder(p=>({...p,customer_address:e.target.value}))} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <FI label="ตำบล" value={editOrder.sub_district||''} onChange={e => setEditOrder(p=>({...p,sub_district:e.target.value}))} />
+            <FI label="อำเภอ" value={editOrder.district||''} onChange={e => setEditOrder(p=>({...p,district:e.target.value}))} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <FI label="รหัส ปณ." value={editOrder.zip_code||''} onChange={e => setEditOrder(p=>({...p,zip_code:e.target.value}))} />
+            <FI label="จังหวัด" value={editOrder.province||''} onChange={e => setEditOrder(p=>({...p,province:e.target.value}))} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <FI label="ราคาขาย" type="number" value={editOrder.sale_price} onChange={e => setEditOrder(p=>({...p,sale_price:e.target.value}))} />
+            <FI label="COD" type="number" value={editOrder.cod_amount} onChange={e => setEditOrder(p=>({...p,cod_amount:e.target.value}))} />
+          </div>
+          <FI label="หมายเหตุ" value={editOrder.remark||''} onChange={e => setEditOrder(p=>({...p,remark:e.target.value}))} />
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Btn full onClick={saveOrder} grad={T.grad2}>💾 บันทึก</Btn>
+            <Btn full outline onClick={() => setEditOrder(null)}>ยกเลิก</Btn>
+          </div>
+        </>}
+      </Modal>
+
       {/* Header */}
       <div style={{ ...glass, borderRadius: 0, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100, background: 'rgba(255,255,255,0.95)', borderBottom: `1px solid ${T.border}` }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 20, fontWeight: 900 }}>⚡ SalesHub</span><LiveDot /></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 20, fontWeight: 900 }}>⚡ ADMIN THE MT</span><LiveDot /></div>
           <div style={{ fontSize: 11, color: T.textDim }}>{profile.full_name} — หัวหน้า</div>
         </div>
         <button onClick={onLogout} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${T.border}`, background: 'transparent', color: T.textDim, fontSize: 12, cursor: 'pointer', fontFamily: T.font }}>ออก</button>
@@ -352,7 +426,11 @@ export default function ManagerApp({ profile, onLogout }) {
                     <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: 'rgba(184,134,11,0.1)', color: T.gold, marginRight: 6 }}>ลำดับที่ {o.daily_seq || (idx + 1)}</span>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{o.customer_name}</span>
                   </div>
-                  <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
+                    <button onClick={() => setEditOrder({...o})} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.textDim, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>✏️</button>
+                    <button onClick={() => deleteOrder(o)} style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(214,48,49,0.2)', background: 'rgba(214,48,49,0.04)', color: T.danger, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>🗑</button>
+                  </div>
                 </div>
                 <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} {o.sales_channel && `· 📦 ${o.sales_channel}`} · 👤 {o.employee_name || profiles.find(p=>p.id===o.employee_id)?.full_name || '—'}</div>
                 {o.remark && <div style={{ fontSize: 11, color: T.textDim }}>💬 {o.remark}</div>}
@@ -482,7 +560,7 @@ export default function ManagerApp({ profile, onLogout }) {
             <div style={{ padding: 16, borderRadius: T.radiusSm, background: T.surfaceAlt, border: `1px solid ${T.border}`, marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>🔗 Google Apps Script URL</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <input value={sheetUrl} onChange={e => { setSheetUrl(e.target.value); localStorage.setItem('saleshub_sheet_url', e.target.value) }}
+                <input value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
                   placeholder="https://script.google.com/macros/s/xxx/exec"
                   style={{ flex: 1, padding: '11px 14px', borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: '#fff', color: T.text, fontSize: 13, fontFamily: T.font, outline: 'none', boxSizing: 'border-box' }} />
                 {sheetUrl && <Btn sm grad={T.grad2} onClick={() => syncToGoogleSheet(orders)} disabled={syncing}>{syncing ? '⏳...' : '🔄 Sync'}</Btn>}
@@ -540,36 +618,47 @@ export default function ManagerApp({ profile, onLogout }) {
 {`function doPost(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var data = JSON.parse(e.postData.contents);
-  var orders = data.orders;
+  var action = data.action || 'sync';
 
-  // สร้างหัวตาราง ProShip (ถ้าว่าง)
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['MobileNo*','Name','Address','SubDistrict','District','ZIP','Customer FB/Line','SalesChannel','SalesPerson','SalePrice','COD*','Remark']);
-    var h = sheet.getRange(1,1,1,12);
-    h.setFontWeight('bold');
-    h.setBackground('#B8860B');
-    h.setFontColor('#FFFFFF');
+  // ลบออเดอร์
+  if (action === 'delete') {
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return ContentService.createTextOutput('{"ok":true}');
+    var col = sheet.getRange(2,15,lastRow-1,1).getValues();
+    for (var i = col.length-1; i >= 0; i--) {
+      if (col[i][0] === data.order_number) sheet.deleteRow(i+2);
+    }
+    return ContentService.createTextOutput('{"ok":true}');
   }
 
-  // ป้องกันซ้ำ (เช็คจาก column 13 = order_number)
+  // Sync ออเดอร์
+  var orders = data.orders || [];
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['MobileNo*','Name','Address','SubDistrict','District','ZIP','FB/Line','SalesChannel','SalesPerson','SalePrice','COD*','Remark','Province','Slip','OrderID']);
+    var h = sheet.getRange(1,1,1,15);
+    h.setFontWeight('bold').setBackground('#B8860B').setFontColor('#FFFFFF');
+    sheet.setColumnWidth(14, 300);
+  }
   var existing = {};
   var lastRow = sheet.getLastRow();
   if (lastRow > 1) {
-    try {
-      var col = sheet.getRange(2,13,lastRow-1,1).getValues();
+    try { var col = sheet.getRange(2,15,lastRow-1,1).getValues();
       col.forEach(function(r){ if(r[0]) existing[r[0]]=true; });
     } catch(e) {}
   }
-
   var added = 0;
   orders.forEach(function(o) {
     if (!existing[o.order_number]) {
-      sheet.appendRow([o.phone,o.name,o.address,o.sub_district,o.district,o.zip,o.fb,o.channel,o.admin,o.price,o.cod,o.remark,o.order_number]);
+      sheet.appendRow([o.phone,o.name,o.address,o.sub_district,o.district,o.zip,o.fb,o.channel,o.admin,o.price,o.cod,o.remark,o.province,'',o.order_number]);
+      if (o.slip) {
+        var row = sheet.getLastRow();
+        sheet.getRange(row,14).setFormula('=IMAGE("'+o.slip+'",1)');
+        sheet.setRowHeight(row, 200);
+      }
       added++;
     }
   });
-
-  return ContentService.createTextOutput(JSON.stringify({ok:true, added:added}));
+  return ContentService.createTextOutput(JSON.stringify({ok:true,added:added}));
 }`}
               </div>
               <div style={{ padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>

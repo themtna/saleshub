@@ -21,7 +21,7 @@ export default function LoginPage({ onLogin }) {
       <div style={{ ...glass, padding: '40px 30px', width: '100%', maxWidth: 400, boxShadow: '0 8px 40px rgba(184,134,11,0.08)', border: '1px solid rgba(184,134,11,0.2)' }}>
         <div style={{ textAlign: 'center', marginBottom: 30 }}>
           <div style={{ width: 68, height: 68, borderRadius: 18, margin: '0 auto 14px', background: T.grad1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, boxShadow: '0 10px 30px rgba(184,134,11,0.3)', color: '#fff' }}>⚡</div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: T.gold }}>SalesHub</h1>
+          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: T.gold }}>ADMIN THE MT</h1>
           <p style={{ margin: '4px 0 0', color: T.textDim, fontSize: 13 }}>ระบบจัดการยอดขาย Real-time</p>
         </div>
 

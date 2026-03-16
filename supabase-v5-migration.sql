@@ -18,3 +18,6 @@ CREATE POLICY "anyone_upload_slip" ON storage.objects
 -- ให้ทุกคนดูสลิปได้
 CREATE POLICY "anyone_view_slip" ON storage.objects
   FOR SELECT USING (bucket_id = 'slips');
+
+-- เพิ่มคอลัมน์จังหวัด
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS province TEXT DEFAULT '';

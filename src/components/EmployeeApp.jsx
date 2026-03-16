@@ -336,7 +336,8 @@ export default function EmployeeApp({ profile, onLogout }) {
       order_date: new Date().toISOString().split('T')[0],
       customer_phone: form.customerPhone, customer_name: form.customerName,
       customer_address: form.customerAddress, sub_district: form.subDistrict,
-      district: form.district, zip_code: form.zipCode, customer_social: form.customerSocial,
+      district: form.district, zip_code: form.zipCode, province: form.province,
+      customer_social: form.customerSocial,
       sales_channel: form.salesChannel, sale_price: amt,
       cod_amount: paymentType === 'cod' ? amt : 0,
       payment_type: paymentType,
@@ -377,7 +378,7 @@ export default function EmployeeApp({ profile, onLogout }) {
 
       <div style={{ ...glass, borderRadius: 0, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100, background: 'rgba(255,255,255,0.95)', borderBottom: `1px solid ${T.border}` }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 20, fontWeight: 900 }}>👤 SalesHub</span><LiveDot /></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 20, fontWeight: 900 }}>👤 ADMIN THE MT</span><LiveDot /></div>
           <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{profile.full_name} · {profile.teams?.name || '—'}</div>
         </div>
         <button onClick={onLogout} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${T.border}`, background: 'transparent', color: T.textDim, fontSize: 12, cursor: 'pointer', fontFamily: T.font }}>ออก</button>
