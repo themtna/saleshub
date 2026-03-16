@@ -3,22 +3,15 @@ import { supabase } from '../lib/supabase'
 
 export function useTeams() {
   const [teams, setTeams] = useState([])
-  const [loading, setLoading] = useState(true)
 
   const fetchTeams = useCallback(async () => {
     try {
       const { data } = await supabase.from('teams').select('*').order('name')
       if (data) setTeams(data)
     } catch {}
-    setLoading(false)
   }, [])
 
-  useEffect(() => {
-    fetchTeams()
-    // กัน timeout ค้าง
-    const t = setTimeout(() => setLoading(false), 3000)
-    return () => clearTimeout(t)
-  }, [fetchTeams])
+  useEffect(() => { fetchTeams() }, [fetchTeams])
 
   const createTeam = async (name) => {
     const { data, error } = await supabase.from('teams').insert({ name }).select().single()
@@ -38,5 +31,5 @@ export function useTeams() {
     return { error }
   }
 
-  return { teams, loading, createTeam, updateTeam, deleteTeam, refetch: fetchTeams }
+  return { teams, createTeam, updateTeam, deleteTeam, refetch: fetchTeams }
 }
