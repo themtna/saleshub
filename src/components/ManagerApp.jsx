@@ -26,7 +26,8 @@ export default function ManagerApp({ profile, onLogout }) {
   const [userForm, setUserForm] = useState({ email: '', password: '', fullName: '', role: 'employee', teamId: '' })
   const [editUser, setEditUser] = useState(null)
   const [editUserTeam, setEditUserTeam] = useState('')
-  const [sheetUrl, setSheetUrlState] = useState(localStorage.getItem('saleshub_sheet_url') || '')
+  const DEFAULT_SHEET = 'https://script.google.com/macros/s/AKfycbxPoooGWacm6H1SAjvj_AN1qdp6-Qe7a1vdpwFzha22980Whru_abzfty0Uenv4pD_Ppg/exec'
+  const [sheetUrl, setSheetUrlState] = useState(localStorage.getItem('saleshub_sheet_url') || DEFAULT_SHEET)
   const setSheetUrl = (v) => { setSheetUrlState(v); sheetUrlRef.current = v; localStorage.setItem('saleshub_sheet_url', v) }
   const [syncing, setSyncing] = useState(false)
   const [showSheetSetup, setShowSheetSetup] = useState(false)
