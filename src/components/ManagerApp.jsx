@@ -127,7 +127,7 @@ export default function ManagerApp({ profile, onLogout }) {
     flash('✅ แก้ไขออเดอร์สำเร็จ')
   }
 
-  // ═══ โหลดข้อมูลทั้งหมด ═══
+  // ═══ โหลดข้อมูลทั้งหมด + Auto Sync ═══
   useEffect(() => {
     const load = async () => {
       try {
@@ -136,9 +136,28 @@ export default function ManagerApp({ profile, onLogout }) {
           supabase.from('teams').select('*').order('name'),
           supabase.from('profiles').select('*, teams(id, name)').order('created_at', { ascending: false }),
         ])
-        setOrders(ordersRes.data || [])
+        const loadedOrders = ordersRes.data || []
+        setOrders(loadedOrders)
         setTeams(teamsRes.data || [])
         setProfiles(profilesRes.data || [])
+
+        // Auto Sync ไป Sheet ทุกครั้งที่เปิดแอป
+        const url = sheetUrlRef.current
+        if (url && loadedOrders.length > 0) {
+          try {
+            const profs = profilesRes.data || []
+            const rows = loadedOrders.map(o => ({
+              phone: o.customer_phone, name: o.customer_name, address: o.customer_address,
+              sub_district: o.sub_district, district: o.district, zip: o.zip_code,
+              fb: o.customer_social, channel: o.sales_channel,
+              admin: o.employee_name || profs.find(p => p.id === o.employee_id)?.full_name || '',
+              price: o.sale_price, cod: o.cod_amount, remark: o.remark,
+              province: o.province || '', slip: o.slip_url || '', order_number: o.order_number,
+            }))
+            fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'sync', orders: rows }) })
+          } catch {}
+        }
       } catch (e) { console.error('Load error:', e) }
     }
     load()
