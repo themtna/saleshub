@@ -7,43 +7,56 @@ export function useAuth() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let mounted = true
+
+    // ตั้ง timeout กันค้าง
+    const timeout = setTimeout(() => {
+      if (mounted && loading) setLoading(false)
+    }, 4000)
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return
       setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      else setLoading(false)
+      if (session?.user) {
+        fetchProfile(session.user.id).finally(() => { if (mounted) setLoading(false) })
+      } else {
+        setLoading(false)
+      }
+    }).catch(() => {
+      if (mounted) setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        if (!mounted) return
         setUser(session?.user ?? null)
-        if (session?.user) await fetchProfile(session.user.id)
-        else { setProfile(null); setLoading(false) }
+        if (session?.user) {
+          await fetchProfile(session.user.id)
+        } else {
+          setProfile(null)
+        }
       }
     )
-    return () => subscription.unsubscribe()
+
+    return () => { mounted = false; clearTimeout(timeout); subscription.unsubscribe() }
   }, [])
 
   async function fetchProfile(userId) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*, teams(id, name)')
-      .eq('id', userId)
-      .single()
-    if (!error && data) setProfile(data)
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*, teams(id, name)')
+        .eq('id', userId)
+        .single()
+      if (!error && data) setProfile(data)
+    } catch {}
   }
 
-  // หัวหน้าสร้างบัญชีพนักงาน
   async function createUser({ email, password, fullName, role, teamId }) {
-    // ใช้ Supabase Auth Admin (ต้องใช้ service_role สำหรับ production)
-    // ใน MVP ใช้ signUp แล้ว signIn กลับ
     const currentSession = await supabase.auth.getSession()
-
-    // สร้าง user ใหม่
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) return { error }
 
-    // สร้าง profile
     const { error: profileError } = await supabase.from('profiles').insert({
       id: data.user.id,
       full_name: fullName,
@@ -52,14 +65,12 @@ export function useAuth() {
     })
     if (profileError) return { error: profileError }
 
-    // login กลับเป็น manager
     if (currentSession.data.session) {
       await supabase.auth.setSession({
         access_token: currentSession.data.session.access_token,
         refresh_token: currentSession.data.session.refresh_token,
       })
     }
-
     return { data }
   }
 
@@ -73,23 +84,13 @@ export function useAuth() {
     setUser(null); setProfile(null)
   }
 
-  // แก้ไข profile (เปลี่ยนทีม, ชื่อ, etc.)
   async function updateProfile(userId, updates) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', userId)
-      .select()
-      .single()
+    const { data, error } = await supabase.from('profiles').update(updates).eq('id', userId).select().single()
     return { data, error }
   }
 
-  // ดึงรายชื่อพนักงานทั้งหมด (สำหรับ manager)
   async function fetchAllProfiles() {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*, teams(id, name)')
-      .order('created_at', { ascending: false })
+    const { data } = await supabase.from('profiles').select('*, teams(id, name)').order('created_at', { ascending: false })
     return data || []
   }
 

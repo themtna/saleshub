@@ -6,12 +6,19 @@ export function useTeams() {
   const [loading, setLoading] = useState(true)
 
   const fetchTeams = useCallback(async () => {
-    const { data } = await supabase.from('teams').select('*').order('name')
-    if (data) setTeams(data)
+    try {
+      const { data } = await supabase.from('teams').select('*').order('name')
+      if (data) setTeams(data)
+    } catch {}
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchTeams() }, [fetchTeams])
+  useEffect(() => {
+    fetchTeams()
+    // กัน timeout ค้าง
+    const t = setTimeout(() => setLoading(false), 3000)
+    return () => clearTimeout(t)
+  }, [fetchTeams])
 
   const createTeam = async (name) => {
     const { data, error } = await supabase.from('teams').insert({ name }).select().single()
