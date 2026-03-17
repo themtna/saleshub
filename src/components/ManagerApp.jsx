@@ -28,6 +28,48 @@ export default function ManagerApp({ profile, onLogout }) {
   const [editUser, setEditUser] = useState(null)
   const [editUserTeam, setEditUserTeam] = useState('')
 
+  // Create order
+  const [orderForm, setOrderForm] = useState({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' })
+  const [orderPayment, setOrderPayment] = useState('cod')
+  const [orderSlipFile, setOrderSlipFile] = useState(null)
+  const [orderSlipPreview, setOrderSlipPreview] = useState(null)
+  const [orderSubmitting, setOrderSubmitting] = useState(false)
+  const setOF = (k) => (e) => setOrderForm(p => ({ ...p, [k]: e.target.value }))
+
+  const clearOrderForm = () => { setOrderForm({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' }); setOrderPayment('cod'); setOrderSlipFile(null); setOrderSlipPreview(null) }
+
+  const submitOrder = async () => {
+    const f = orderForm
+    if (!f.customerPhone || !f.customerName || !f.customerAddress || !f.amount) { flash('❌ กรุณากรอก เบอร์, ชื่อ, ที่อยู่, ยอดเงิน'); return }
+    setOrderSubmitting(true)
+    const amt = parseFloat(f.amount) || 0
+
+    let slipUrl = ''
+    if (orderSlipFile && orderPayment === 'transfer') {
+      const fileName = `slips/${Date.now()}_${Math.random().toString(36).slice(2)}.${orderSlipFile.name.split('.').pop()}`
+      const { error: upErr } = await supabase.storage.from('slips').upload(fileName, orderSlipFile)
+      if (upErr) { flash('❌ อัพโหลดสลิปไม่สำเร็จ'); setOrderSubmitting(false); return }
+      const { data: urlData } = supabase.storage.from('slips').getPublicUrl(fileName)
+      slipUrl = urlData?.publicUrl || ''
+    }
+
+    const { data: newOrder, error } = await supabase.from('orders').insert({
+      order_date: new Date().toISOString().split('T')[0],
+      customer_phone: f.customerPhone, customer_name: f.customerName,
+      customer_address: f.customerAddress, sub_district: f.subDistrict,
+      district: f.district, zip_code: f.zipCode, province: f.province,
+      customer_social: f.customerSocial, sales_channel: f.salesChannel,
+      sale_price: amt, cod_amount: orderPayment === 'cod' ? amt : 0,
+      payment_type: orderPayment, slip_url: slipUrl,
+      remark: f.remark, employee_id: profile.id, team_id: null, employee_name: profile.full_name,
+    }).select().single()
+    if (error) { flash('❌ ' + error.message) } else {
+      syncOrderToSheet(newOrder, profile.full_name)
+      flash('✅ สร้างออเดอร์สำเร็จ!'); clearOrderForm()
+    }
+    setOrderSubmitting(false)
+  }
+
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 3000) }
 
   // ═══ ลบออเดอร์ ═══
@@ -222,10 +264,75 @@ export default function ManagerApp({ profile, onLogout }) {
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>
-        <Tabs items={[{ id: 'dashboard', label: '📈 ภาพรวม' }, { id: 'orders', label: '📋 รายงาน' }, { id: 'teams', label: '👥 ทีม' }, { id: 'users', label: '🧑‍💼 ผู้ใช้' }]} active={tab} onChange={setTab} />
+        <Tabs items={[{ id: 'dashboard', label: '📈 ภาพรวม' }, { id: 'create', label: '➕ สร้าง' }, { id: 'orders', label: '📋 รายงาน' }, { id: 'teams', label: '👥 ทีม' }, { id: 'users', label: '🧑‍💼 ผู้ใช้' }]} active={tab} onChange={setTab} />
       </div>
 
       <div style={{ padding: 16 }}>
+        {/* ══ CREATE ORDER ══ */}
+        {tab === 'create' && <>
+          <div style={{ ...glass, padding: 20 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 16 }}>📝 สร้างออเดอร์ใหม่</div>
+
+            <FI label="📱 เบอร์มือถือ *" type="tel" maxLength={10} value={orderForm.customerPhone} onChange={setOF('customerPhone')} placeholder="08xxxxxxxx" style={{ fontSize: 18, fontWeight: 700, letterSpacing: 2 }} />
+            <FI label="👤 ชื่อลูกค้า *" value={orderForm.customerName} onChange={setOF('customerName')} placeholder="ชื่อลูกค้า" />
+            <FI label="📍 ที่อยู่ *" value={orderForm.customerAddress} onChange={setOF('customerAddress')} placeholder="บ้านเลขที่ ซอย ถนน..." />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <FI label="ตำบล" value={orderForm.subDistrict} onChange={setOF('subDistrict')} placeholder="ตำบล" />
+              <FI label="อำเภอ" value={orderForm.district} onChange={setOF('district')} placeholder="อำเภอ" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <FI label="รหัส ปณ." value={orderForm.zipCode} onChange={setOF('zipCode')} placeholder="10500" />
+              <FI label="จังหวัด" value={orderForm.province} onChange={setOF('province')} placeholder="กรุงเทพ" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <FI label="📘 ชื่อเฟส/ไลน์" value={orderForm.customerSocial} onChange={setOF('customerSocial')} placeholder="ชื่อ Facebook" />
+              <FI label="📦 ชื่อเพจ" value={orderForm.salesChannel} onChange={setOF('salesChannel')} placeholder="ชื่อเพจ" />
+            </div>
+
+            <FI label="💰 ยอดเงิน (฿) *" type="number" value={orderForm.amount} onChange={setOF('amount')} placeholder="0" style={{ fontSize: 22, fontWeight: 800, textAlign: 'center' }} />
+
+            {/* ประเภทการชำระ */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 8 }}>💳 ประเภทการชำระเงิน</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button onClick={() => { setOrderPayment('cod'); setOrderSlipFile(null); setOrderSlipPreview(null) }} style={{
+                  padding: '12px', borderRadius: T.radiusSm, cursor: 'pointer', fontFamily: T.font, fontSize: 14, fontWeight: 600,
+                  border: orderPayment === 'cod' ? '2px solid ' + T.gold : '1px solid ' + T.border,
+                  background: orderPayment === 'cod' ? 'rgba(184,134,11,0.08)' : T.surface, color: orderPayment === 'cod' ? T.gold : T.textDim,
+                }}>📦 COD</button>
+                <button onClick={() => setOrderPayment('transfer')} style={{
+                  padding: '12px', borderRadius: T.radiusSm, cursor: 'pointer', fontFamily: T.font, fontSize: 14, fontWeight: 600,
+                  border: orderPayment === 'transfer' ? '2px solid ' + T.success : '1px solid ' + T.border,
+                  background: orderPayment === 'transfer' ? 'rgba(45,138,78,0.08)' : T.surface, color: orderPayment === 'transfer' ? T.success : T.textDim,
+                }}>🏦 โอนเงิน</button>
+              </div>
+            </div>
+
+            {/* สลิป */}
+            {orderPayment === 'transfer' && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 8 }}>🧾 อัพโหลดสลิป</label>
+                <div style={{ padding: 16, borderRadius: T.radiusSm, textAlign: 'center', border: `2px dashed ${orderSlipFile ? T.success : T.border}`, background: orderSlipFile ? 'rgba(45,138,78,0.03)' : T.surfaceAlt, cursor: 'pointer' }}
+                  onClick={() => document.getElementById('mgr-slip').click()}>
+                  <input id="mgr-slip" type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (file) { setOrderSlipFile(file); const r = new FileReader(); r.onload = ev => setOrderSlipPreview(ev.target.result); r.readAsDataURL(file) }
+                  }} />
+                  {orderSlipPreview ? (
+                    <div><img src={orderSlipPreview} alt="สลิป" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: 8 }} /><div style={{ fontSize: 12, color: T.success }}>✅ {orderSlipFile.name}</div></div>
+                  ) : (
+                    <div><div style={{ fontSize: 32, marginBottom: 8 }}>📷</div><div style={{ fontSize: 14, color: T.textDim }}>กดเพื่อเลือกรูปสลิป</div></div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <FI label="💬 หมายเหตุ" value={orderForm.remark} onChange={setOF('remark')} placeholder="สินค้า / รายละเอียด" />
+            <Btn full grad={T.grad2} onClick={submitOrder} disabled={orderSubmitting}>{orderSubmitting ? '⏳ กำลังบันทึก...' : '✅ บันทึกออเดอร์'}</Btn>
+          </div>
+        </>}
+
         {/* ══ DASHBOARD ══ */}
         {tab === 'dashboard' && (() => {
           const todayCodOrd = today.filter(o => o.payment_type !== 'transfer')
