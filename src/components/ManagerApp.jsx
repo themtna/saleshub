@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../lib/supabase'
+import { syncOrderToSheet, deleteOrderFromSheet, syncAllToSheet } from '../lib/sheetSync'
 import { T, glass, fmt, fmtDate, fmtDateFull, fmtDateTime, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Modal, Empty, LiveDot } from './ui'
 
 function FI({ label, ...p }) {
@@ -25,74 +26,8 @@ export default function ManagerApp({ profile, onLogout }) {
   const [showUserModal, setShowUserModal] = useState(false)
   const [userForm, setUserForm] = useState({ email: '', password: '', fullName: '', role: 'employee', teamId: '' })
   const [editUser, setEditUser] = useState(null)
-  const [editUserTeam, setEditUserTeam] = useState('')
-  const SHEET_URL = 'https://script.google.com/macros/s/AKfycbxPoooGWacm6H1SAjvj_AN1qdp6-Qe7a1vdpwFzha22980Whru_abzfty0Uenv4pD_Ppg/exec'
-  const [syncing, setSyncing] = useState(false)
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 3000) }
-
-  // ═══ Export CSV (รูปแบบ ProShip Flash) ═══
-  const exportCSV = (data, filename) => {
-    const headers = ['MobileNo*\nเบอร์มือถือ','Name\nชื่อ','Address\nที่อยู่','SubDistrict\nตำบล','District\nอำเภอ','ZIP\nรหัส ปณ.','Customer FB/Line\nเฟส/ไลน์ลูกค้า','SalesChannel\nช่องทางจำหน่าย','SalesPerson\nชื่อแอดมิน','SalePrice\nราคาขาย','COD*\nยอดเก็บเงินปลายทาง','Remark\nหมายเหตุ','Province\nจังหวัด','Slip\nสลิปโอนเงิน']
-    const rows = data.map(o => [
-      o.customer_phone,
-      o.customer_name,
-      o.customer_address,
-      o.sub_district,
-      o.district,
-      o.zip_code,
-      o.customer_social,
-      o.sales_channel,
-      o.employee_name || profiles.find(p => p.id === o.employee_id)?.full_name || '',
-      o.sale_price,
-      o.cod_amount,
-      o.remark,
-      o.province || '',
-      o.slip_url || '',
-    ])
-    const csv = '\uFEFF' + [headers, ...rows].map(r => r.map(c => `"${String(c||'').replace(/"/g, '""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = filename || 'saleshub-orders.csv'; a.click()
-    URL.revokeObjectURL(url)
-    flash('✅ ดาวน์โหลด CSV สำเร็จ')
-  }
-
-  // ═══ Sync to Google Sheets (รูปแบบ ProShip) ═══
-  const orderToRow = (o) => ({
-    phone: o.customer_phone, name: o.customer_name, address: o.customer_address,
-    sub_district: o.sub_district, district: o.district, zip: o.zip_code,
-    fb: o.customer_social, channel: o.sales_channel,
-    admin: o.employee_name || profiles.find(p => p.id === o.employee_id)?.full_name || '',
-    price: o.sale_price, cod: o.cod_amount, remark: o.remark,
-    province: o.province || '', slip: o.slip_url || '', order_number: o.order_number,
-  })
-
-  const syncToGoogleSheet = async (data) => {
-    if (!SHEET_URL) return
-    setSyncing(true)
-    try {
-      await fetch(SHEET_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync', orders: data.map(orderToRow) }) })
-      flash('✅ Sync ไป Google Sheet แล้ว!')
-    } catch (e) { flash('❌ ' + e.message) }
-    setSyncing(false)
-  }
-
-  // sync 1 order (ใช้ตอน realtime)
-  const syncOneToSheet = (order) => {
-    const url = SHEET_URL
-    if (!url) return
-    try { fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'sync', orders: [orderToRow(order)] }) }) } catch {}
-  }
-
-  // ลบจาก sheet
-  const deleteFromSheet = (orderNumber) => {
-    if (!SHEET_URL) return
-    try { fetch(SHEET_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', order_number: orderNumber }) }) } catch {}
-  }
 
   // ═══ ลบออเดอร์ ═══
   const deleteOrder = async (order) => {
@@ -101,7 +36,7 @@ export default function ManagerApp({ profile, onLogout }) {
     if (error) { flash('❌ ' + error.message); return }
     setOrders(prev => prev.filter(o => o.id !== order.id))
     if (dateOrders) setDateOrders(prev => prev.filter(o => o.id !== order.id))
-    deleteFromSheet(order.order_number)
+    deleteOrderFromSheet(order.order_number)
     flash('🗑 ลบออเดอร์สำเร็จ')
   }
 
@@ -124,12 +59,12 @@ export default function ManagerApp({ profile, onLogout }) {
     flash('✅ แก้ไขออเดอร์สำเร็จ')
   }
 
-  // ═══ โหลดข้อมูลทั้งหมด + Auto Sync ═══
+  // ═══ โหลดข้อมูล + Auto Sync ═══
   useEffect(() => {
     const load = async () => {
       try {
         const [ordersRes, teamsRes, profilesRes] = await Promise.all([
-          supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(100),
+          supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(200),
           supabase.from('teams').select('*').order('name'),
           supabase.from('profiles').select('*, teams(id, name)').order('created_at', { ascending: false }),
         ])
@@ -137,34 +72,18 @@ export default function ManagerApp({ profile, onLogout }) {
         setOrders(loadedOrders)
         setTeams(teamsRes.data || [])
         setProfiles(profilesRes.data || [])
-
-        // Auto Sync ไป Sheet ทุกครั้งที่เปิดแอป
-        const url = SHEET_URL
-        if (url && loadedOrders.length > 0) {
-          try {
-            const profs = profilesRes.data || []
-            const rows = loadedOrders.map(o => ({
-              phone: o.customer_phone, name: o.customer_name, address: o.customer_address,
-              sub_district: o.sub_district, district: o.district, zip: o.zip_code,
-              fb: o.customer_social, channel: o.sales_channel,
-              admin: o.employee_name || profs.find(p => p.id === o.employee_id)?.full_name || '',
-              price: o.sale_price, cod: o.cod_amount, remark: o.remark,
-              province: o.province || '', slip: o.slip_url || '', order_number: o.order_number,
-            }))
-            fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'sync', orders: rows }) })
-          } catch {}
-        }
+        // Auto sync ไป Sheet
+        syncAllToSheet(loadedOrders, profilesRes.data || [])
       } catch (e) { console.error('Load error:', e) }
     }
     load()
 
-    // Realtime — auto sync to sheet
+    // Realtime
     const ch = supabase.channel('mgr-orders')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
         (payload) => {
           setOrders(prev => [payload.new, ...prev])
-          syncOneToSheet(payload.new) // auto sync ไป sheet
+          syncOrderToSheet(payload.new)
         }
       )
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' },
@@ -173,7 +92,6 @@ export default function ManagerApp({ profile, onLogout }) {
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [])
-
   // ═══ Stats ═══
   const today = orders.filter(o => sameDay(o.created_at, new Date()))
   const todaySum = today.reduce((s, o) => s + (parseFloat(o.sale_price) || 0), 0)
@@ -303,7 +221,7 @@ export default function ManagerApp({ profile, onLogout }) {
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>
-        <Tabs items={[{ id: 'dashboard', label: '📈 ภาพรวม' }, { id: 'orders', label: '📋 รายงาน' }, { id: 'teams', label: '👥 ทีม' }, { id: 'users', label: '🧑‍💼 ผู้ใช้' }, { id: 'backup', label: '💾 Backup' }]} active={tab} onChange={setTab} />
+        <Tabs items={[{ id: 'dashboard', label: '📈 ภาพรวม' }, { id: 'orders', label: '📋 รายงาน' }, { id: 'teams', label: '👥 ทีม' }, { id: 'users', label: '🧑‍💼 ผู้ใช้' }]} active={tab} onChange={setTab} />
       </div>
 
       <div style={{ padding: 16 }}>
@@ -569,33 +487,6 @@ export default function ManagerApp({ profile, onLogout }) {
         </>}
 
         {/* ══ BACKUP ══ */}
-        {tab === 'backup' && <>
-          <div style={{ ...glass, padding: 20, marginBottom: 14 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>💾 Google Sheet Backup</div>
-            <div style={{ fontSize: 12, color: T.success, marginBottom: 16 }}>✅ เชื่อมต่อแล้ว — Sync อัตโนมัติทุกออเดอร์ใหม่</div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              <button onClick={() => syncToGoogleSheet(orders)} disabled={syncing} style={{
-                padding: '16px', borderRadius: T.radiusSm, border: '1px solid rgba(45,138,78,0.2)',
-                background: 'rgba(45,138,78,0.04)', color: T.success, fontSize: 14, fontWeight: 700,
-                cursor: 'pointer', fontFamily: T.font, opacity: syncing ? 0.5 : 1,
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>📊</div>
-                {syncing ? '⏳ กำลังส่ง...' : 'Sync ทั้งหมด'}
-                <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4 }}>{orders.length} ออเดอร์</div>
-              </button>
-              <button onClick={() => exportCSV(orders, `adminmt-${new Date().toISOString().split('T')[0]}.csv`)} style={{
-                padding: '16px', borderRadius: T.radiusSm, border: '1px solid rgba(184,134,11,0.2)',
-                background: 'rgba(184,134,11,0.04)', color: T.gold, fontSize: 14, fontWeight: 700,
-                cursor: 'pointer', fontFamily: T.font,
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>📥</div>
-                ดาวน์โหลด CSV
-                <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4 }}>ProShip Flash format</div>
-              </button>
-            </div>
-          </div>
-        </>}
       </div>
     </div>
   )

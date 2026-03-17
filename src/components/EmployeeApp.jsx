@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '../lib/supabase'
+import { syncOrderToSheet } from '../lib/sheetSync'
 import { T, glass, fmt, fmtDate, fmtDateFull, fmtDateTime, sameDay, withinDays, thisMonth, Stat, Tabs, Btn, Toast, Empty, LiveDot } from './ui'
 
 // โหลด addresses แบบ lazy — ไม่บล็อคหน้าเว็บ
@@ -332,7 +333,7 @@ export default function EmployeeApp({ profile, onLogout }) {
       slipUrl = urlData?.publicUrl || ''
     }
 
-    const { error } = await supabase.from('orders').insert({
+    const { data: newOrder, error } = await supabase.from('orders').insert({
       order_date: new Date().toISOString().split('T')[0],
       customer_phone: form.customerPhone, customer_name: form.customerName,
       customer_address: form.customerAddress, sub_district: form.subDistrict,
@@ -343,8 +344,11 @@ export default function EmployeeApp({ profile, onLogout }) {
       payment_type: paymentType,
       slip_url: slipUrl,
       remark: form.remark, employee_id: profile.id, team_id: profile.team_id, employee_name: profile.full_name,
-    })
-    if (error) { setToast(`❌ ${error.message}`) } else { setToast('✅ บันทึกออเดอร์สำเร็จ!'); clearForm() }
+    }).select().single()
+    if (error) { setToast(`❌ ${error.message}`) } else {
+      syncOrderToSheet(newOrder, profile.full_name)
+      setToast('✅ บันทึกออเดอร์สำเร็จ!'); clearForm()
+    }
     setSubmitting(false); setTimeout(() => setToast(null), 2500)
   }
 
