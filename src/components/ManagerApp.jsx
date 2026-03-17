@@ -16,6 +16,7 @@ export default function ManagerApp({ profile, onLogout }) {
   const [toast, setToast] = useState(null)
   const [dateFilter, setDateFilter] = useState('')
   const [dateOrders, setDateOrders] = useState(null)
+  const [userFilter, setUserFilter] = useState('')
 
   // Team modal
   const [showTeamModal, setShowTeamModal] = useState(false)
@@ -429,24 +430,49 @@ export default function ManagerApp({ profile, onLogout }) {
         })()}
 
         {/* ══ ORDERS ══ */}
-        {tab === 'orders' && <>
+        {tab === 'orders' && (() => {
+          // กรองตาม user ที่เลือก
+          const filterByUser = (list) => userFilter ? list.filter(o => o.employee_id === userFilter) : list
+          const filteredDateOrders = dateOrders ? filterByUser(dateOrders) : null
+          const filteredDisplayOrders = filterByUser(displayOrders)
+
+          return <>
           <div style={{ ...glass, padding: 16, marginBottom: 14 }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>📅 เลือกวันที่</div>
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
               <input type="date" value={dateFilter} onChange={e => handleDateChange(e.target.value)} style={{ flex: 1, padding: '11px 14px', borderRadius: T.radiusSm, background: T.surfaceAlt, border: `1px solid ${T.border}`, color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none' }} />
               {dateFilter && <Btn sm outline onClick={() => handleDateChange('')}>ล้าง</Btn>}
             </div>
-            {dateFilter && dateOrders && (() => {
-              const codOrders = dateOrders.filter(o => o.payment_type !== 'transfer')
-              const transferOrders = dateOrders.filter(o => o.payment_type === 'transfer')
-              const totalSales = dateOrders.reduce((s,o) => s+(parseFloat(o.sale_price)||0), 0)
+
+            {/* เลือก User */}
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 6 }}>👤 เลือกพนักงาน</label>
+              <select value={userFilter} onChange={e => setUserFilter(e.target.value)} style={{ width: '100%', padding: '11px 14px', borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.text, fontSize: 14, fontFamily: T.font, outline: 'none', boxSizing: 'border-box' }}>
+                <option value="">— ทุกคน —</option>
+                {profiles.filter(p => p.role === 'employee').map(p => (
+                  <option key={p.id} value={p.id}>{p.full_name}{p.teams?.name ? ` (${p.teams.name})` : ''}</option>
+                ))}
+                {profiles.filter(p => p.role === 'manager').map(p => (
+                  <option key={p.id} value={p.id}>🏢 {p.full_name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* สรุปยอด */}
+            {dateFilter && filteredDateOrders && (() => {
+              const codOrders = filteredDateOrders.filter(o => o.payment_type !== 'transfer')
+              const transferOrders = filteredDateOrders.filter(o => o.payment_type === 'transfer')
+              const totalSales = filteredDateOrders.reduce((s,o) => s+(parseFloat(o.sale_price)||0), 0)
               const codSum = codOrders.reduce((s,o) => s+(parseFloat(o.cod_amount)||0), 0)
               const transferSum = transferOrders.reduce((s,o) => s+(parseFloat(o.sale_price)||0), 0)
               return (
-                <div style={{ marginTop: 14, padding: 14, borderRadius: T.radiusSm, background: 'rgba(184,134,11,0.05)', border: '1px solid rgba(184,134,11,0.12)' }}>
-                  <div style={{ fontSize: 13, color: T.textDim, marginBottom: 8 }}>{fmtDateFull(dateFilter)}</div>
+                <div style={{ marginTop: 4, padding: 14, borderRadius: T.radiusSm, background: 'rgba(184,134,11,0.05)', border: '1px solid rgba(184,134,11,0.12)' }}>
+                  <div style={{ fontSize: 13, color: T.textDim, marginBottom: 8 }}>
+                    {fmtDateFull(dateFilter)}
+                    {userFilter && <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 6, background: 'rgba(184,134,11,0.1)', fontSize: 11, fontWeight: 600, color: T.gold }}>{profiles.find(p=>p.id===userFilter)?.full_name}</span>}
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                    <div><div style={{ fontSize: 10, color: T.textMuted }}>ทั้งหมด</div><div style={{ fontSize: 20, fontWeight: 900, color: T.gold }}>{dateOrders.length}</div></div>
+                    <div><div style={{ fontSize: 10, color: T.textMuted }}>ทั้งหมด</div><div style={{ fontSize: 20, fontWeight: 900, color: T.gold }}>{filteredDateOrders.length}</div></div>
                     <div><div style={{ fontSize: 10, color: T.textMuted }}>ยอดรวม</div><div style={{ fontSize: 20, fontWeight: 900, color: T.success }}>฿{fmt(totalSales)}</div></div>
                     <div><div style={{ fontSize: 10, color: T.textMuted }}>📦 COD ({codOrders.length})</div><div style={{ fontSize: 20, fontWeight: 900, color: T.gold }}>฿{fmt(codSum)}</div></div>
                     <div><div style={{ fontSize: 10, color: T.textMuted }}>🏦 โอน ({transferOrders.length})</div><div style={{ fontSize: 20, fontWeight: 900, color: T.success }}>฿{fmt(transferSum)}</div></div>
@@ -457,9 +483,9 @@ export default function ManagerApp({ profile, onLogout }) {
           </div>
 
           {/* แยก COD / โอนเงิน */}
-          {dateFilter && dateOrders && (() => {
-            const codOrders = dateOrders.filter(o => o.payment_type !== 'transfer')
-            const transferOrders = dateOrders.filter(o => o.payment_type === 'transfer')
+          {dateFilter && filteredDateOrders && (() => {
+            const codOrders = filteredDateOrders.filter(o => o.payment_type !== 'transfer')
+            const transferOrders = filteredDateOrders.filter(o => o.payment_type === 'transfer')
 
             const renderOrder = (o, idx) => (
               <div key={o.id} style={{ ...glass, padding: '12px 16px', marginBottom: 6 }}>
@@ -505,15 +531,14 @@ export default function ManagerApp({ profile, onLogout }) {
                   </div>
                 )}
 
-                {dateOrders.length === 0 && <Empty text="ไม่มีออเดอร์วันนี้" />}
+                {filteredDateOrders.length === 0 && <Empty text="ไม่มีออเดอร์" />}
               </div>
             )
           })()}
 
-          {/* ถ้ายังไม่เลือกวัน แสดง orders ล่าสุด */}
           {!dateFilter && (
             <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
-              {displayOrders.map((o, i) => (
+              {filteredDisplayOrders.map((o, i) => (
                 <div key={o.id} style={{ ...glass, padding: '12px 16px', marginBottom: 6 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <div>
@@ -535,10 +560,11 @@ export default function ManagerApp({ profile, onLogout }) {
                   </div>
                 </div>
               ))}
-              {displayOrders.length === 0 && <Empty text="เลือกวันที่เพื่อดูรายงาน" />}
+              {filteredDisplayOrders.length === 0 && <Empty text="เลือกวันที่เพื่อดูรายงาน" />}
             </div>
           )}
-        </>}
+        </>
+        })()}
 
         {/* ══ TEAMS ══ */}
         {tab === 'teams' && <>
