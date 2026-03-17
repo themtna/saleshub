@@ -310,6 +310,7 @@ export default function EmployeeApp({ profile, onLogout }) {
     setForm(newForm)
     if (k === 'customerPhone') setPhoneError(validatePhone(e.target.value).valid ? '' : validatePhone(e.target.value).msg)
     if (['subDistrict', 'district', 'zipCode', 'province'].includes(k)) validateAddress(newForm)
+    if (fieldErrors[k]) setFieldErrors(prev => { const n = {...prev}; delete n[k]; return n })
   }
 
   const handleAddressSelect = (a) => {
@@ -318,12 +319,21 @@ export default function EmployeeApp({ profile, onLogout }) {
     setAddressWarning('') // เลือกจาก dropdown ถูกต้องเสมอ
   }
 
-  const clearForm = () => { setForm({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' }); setPhoneError(''); setAddressWarning(''); setPasteText(''); setPaymentType('cod'); setSlipFile(null); setSlipPreview(null) }
+  const clearForm = () => { setForm({ customerPhone: '', customerName: '', customerAddress: '', subDistrict: '', district: '', zipCode: '', province: '', customerSocial: '', salesChannel: '', amount: '', remark: '' }); setPhoneError(''); setAddressWarning(''); setPasteText(''); setPaymentType('cod'); setSlipFile(null); setSlipPreview(null); setFieldErrors({}) }
+
+  const [fieldErrors, setFieldErrors] = useState({})
 
   const submit = async () => {
-    if (!validatePhone(form.customerPhone).valid) { setToast('❌ เบอร์โทรไม่ถูกต้อง'); setTimeout(() => setToast(null), 2500); return }
-    if (!form.customerPhone || !form.customerName || !form.customerAddress || !form.amount) { setToast('❌ กรุณากรอก เบอร์, ชื่อ, ที่อยู่, ยอดเงิน'); setTimeout(() => setToast(null), 2500); return }
-    if (paymentType === 'transfer' && !slipFile) { setToast('❌ กรุณาอัพโหลดสลิปโอนเงิน'); setTimeout(() => setToast(null), 2500); return }
+    // เช็คช่องที่จำเป็น
+    const errs = {}
+    if (!form.customerPhone) errs.customerPhone = 'กรุณากรอกเบอร์โทร'
+    else if (!validatePhone(form.customerPhone).valid) errs.customerPhone = validatePhone(form.customerPhone).msg
+    if (!form.customerName) errs.customerName = 'กรุณากรอกชื่อ'
+    if (!form.customerAddress) errs.customerAddress = 'กรุณากรอกที่อยู่'
+    if (!form.amount) errs.amount = 'กรุณากรอกยอดเงิน'
+    if (paymentType === 'transfer' && !slipFile) errs.slip = 'กรุณาอัพโหลดสลิป'
+    setFieldErrors(errs)
+    if (Object.keys(errs).length > 0) { setToast('❌ กรุณากรอกข้อมูลให้ครบ'); setTimeout(() => setToast(null), 2500); return }
     setSubmitting(true)
     const amt = parseFloat(form.amount) || 0
 
@@ -468,9 +478,9 @@ export default function EmployeeApp({ profile, onLogout }) {
               )}
             </div>
 
-            <FI label="📱 เบอร์มือถือ * (10 หลัก)" type="tel" maxLength={10} value={form.customerPhone} onChange={set('customerPhone')} placeholder="08xxxxxxxx" error={phoneError} success={phoneOk ? '✅ เบอร์ถูกต้อง' : ''} style={{ fontSize: 18, fontWeight: 700, letterSpacing: 2 }} />
-            <FI label="👤 ชื่อลูกค้า *" value={form.customerName} onChange={set('customerName')} placeholder="คุณลูกค้า" />
-            <FI label="📍 ที่อยู่ *" value={form.customerAddress} onChange={set('customerAddress')} placeholder="29 หมู่ที่ 1 ถนน..." />
+            <FI label="📱 เบอร์มือถือ * (10 หลัก)" type="tel" maxLength={10} value={form.customerPhone} onChange={set('customerPhone')} placeholder="08xxxxxxxx" error={fieldErrors.customerPhone || phoneError} success={phoneOk ? '✅ เบอร์ถูกต้อง' : ''} style={{ fontSize: 18, fontWeight: 700, letterSpacing: 2 }} />
+            <FI label="👤 ชื่อลูกค้า *" value={form.customerName} onChange={set('customerName')} placeholder="คุณลูกค้า" error={fieldErrors.customerName} />
+            <FI label="📍 ที่อยู่ *" value={form.customerAddress} onChange={set('customerAddress')} placeholder="29 หมู่ที่ 1 ถนน..." error={fieldErrors.customerAddress} />
 
             <AddressSearch onSelect={handleAddressSelect} addresses={addresses} currentValue={form.subDistrict ? `${form.subDistrict} > ${form.district} > ${form.province} ${form.zipCode}` : ''} />
 
@@ -495,7 +505,7 @@ export default function EmployeeApp({ profile, onLogout }) {
               <FI label="📦 ชื่อเพจ (จาก P:)" value={form.salesChannel} onChange={set('salesChannel')} placeholder="เช่น ครีมหลงเลย หน้าขาว เพจหลักบริษัท" />
             </div>
 
-            <FI label="💰 ยอดเงิน (฿) *" type="number" value={form.amount} onChange={set('amount')} placeholder="0" style={{ fontSize: 22, fontWeight: 800, textAlign: 'center' }} />
+            <FI label="💰 ยอดเงิน (฿) *" type="number" value={form.amount} onChange={set('amount')} placeholder="0" error={fieldErrors.amount} style={{ fontSize: 22, fontWeight: 800, textAlign: 'center' }} />
 
             {/* ประเภทการชำระเงิน */}
             <div style={{ marginBottom: 14 }}>
@@ -519,11 +529,11 @@ export default function EmployeeApp({ profile, onLogout }) {
             {/* อัพโหลดสลิป (เฉพาะโอนเงิน) */}
             {paymentType === 'transfer' && (
               <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, color: T.textDim, fontWeight: 500, marginBottom: 8 }}>🧾 อัพโหลดสลิปโอนเงิน *</label>
+                <label style={{ display: 'block', fontSize: 12, color: fieldErrors.slip ? T.danger : T.textDim, fontWeight: 500, marginBottom: 8 }}>🧾 อัพโหลดสลิปโอนเงิน *</label>
                 <div style={{
                   padding: 16, borderRadius: T.radiusSm, textAlign: 'center',
-                  border: `2px dashed ${slipFile ? T.success : T.border}`,
-                  background: slipFile ? 'rgba(45,138,78,0.03)' : T.surfaceAlt,
+                  border: `2px dashed ${slipFile ? T.success : fieldErrors.slip ? T.danger : T.border}`,
+                  background: slipFile ? 'rgba(45,138,78,0.03)' : fieldErrors.slip ? 'rgba(214,48,49,0.03)' : T.surfaceAlt,
                   cursor: 'pointer', position: 'relative',
                 }} onClick={() => document.getElementById('slip-input').click()}>
                   <input id="slip-input" type="file" accept="image/*" style={{ display: 'none' }}
@@ -532,6 +542,7 @@ export default function EmployeeApp({ profile, onLogout }) {
                       if (file) {
                         if (file.size > 5 * 1024 * 1024) { setToast('❌ ไฟล์ใหญ่เกิน 5MB'); setTimeout(() => setToast(null), 2500); return }
                         setSlipFile(file)
+                        if (fieldErrors.slip) setFieldErrors(prev => { const n = {...prev}; delete n.slip; return n })
                         const reader = new FileReader()
                         reader.onload = (ev) => setSlipPreview(ev.target.result)
                         reader.readAsDataURL(file)
@@ -555,6 +566,7 @@ export default function EmployeeApp({ profile, onLogout }) {
                     </div>
                   )}
                 </div>
+                {fieldErrors.slip && <div style={{ fontSize: 11, color: T.danger, marginTop: 6 }}>{fieldErrors.slip}</div>}
               </div>
             )}
 
