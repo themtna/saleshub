@@ -26,6 +26,7 @@ export default function ManagerApp({ profile, onLogout }) {
   const [showUserModal, setShowUserModal] = useState(false)
   const [userForm, setUserForm] = useState({ email: '', password: '', fullName: '', role: 'employee', teamId: '' })
   const [editUser, setEditUser] = useState(null)
+  const [editUserTeam, setEditUserTeam] = useState('')
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 3000) }
 
