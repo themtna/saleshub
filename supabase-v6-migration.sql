@@ -3,7 +3,7 @@
 -- ║  รัน SQL นี้ใน Supabase SQL Editor                           ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
--- Manager UPDATE orders
+-- หัวหน้า UPDATE ออเดอร์ได้
 DO $$ BEGIN
   CREATE POLICY "manager_update_orders" ON orders
     FOR UPDATE USING (
@@ -12,7 +12,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Manager DELETE orders
+-- หัวหน้า DELETE ออเดอร์ได้
 DO $$ BEGIN
   CREATE POLICY "manager_delete_orders" ON orders
     FOR DELETE USING (
@@ -21,5 +21,5 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- เพิ่มคอลัมน์ province (ถ้ายังไม่มี)
+-- เพิ่มคอลัมน์ province
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS province TEXT DEFAULT '';

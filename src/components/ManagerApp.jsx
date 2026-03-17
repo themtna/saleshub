@@ -361,16 +361,16 @@ export default function ManagerApp({ profile, onLogout }) {
                     <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: 'rgba(184,134,11,0.1)', color: T.gold, marginRight: 6 }}>ลำดับที่ {o.daily_seq || (idx + 1)}</span>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{o.customer_name}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
-                    <button onClick={() => setEditOrder({...o})} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.textDim, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>✏️</button>
-                    <button onClick={() => deleteOrder(o)} style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(214,48,49,0.2)', background: 'rgba(214,48,49,0.04)', color: T.danger, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>🗑</button>
-                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
                 </div>
                 <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} {o.sales_channel && `· 📦 ${o.sales_channel}`} · 👤 {o.employee_name || profiles.find(p=>p.id===o.employee_id)?.full_name || '—'}</div>
                 <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>🕐 {fmtDateTime(o.created_at)}</div>
                 {o.remark && <div style={{ fontSize: 11, color: T.textDim }}>💬 {o.remark}</div>}
                 {o.slip_url && <a href={o.slip_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(45,138,78,0.06)', border: '1px solid rgba(45,138,78,0.15)', fontSize: 11, color: T.success, fontWeight: 600, textDecoration: 'none' }}>🧾 ดูสลิป</a>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+                  <button onClick={() => setEditOrder({...o})} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.gold, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: T.font }}>✏️ แก้ไข</button>
+                  <button onClick={() => deleteOrder(o)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid rgba(214,48,49,0.2)', background: 'rgba(214,48,49,0.04)', color: T.danger, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: T.font }}>🗑 ลบ</button>
+                </div>
               </div>
             )
 
@@ -416,16 +416,16 @@ export default function ManagerApp({ profile, onLogout }) {
                       </span>
                       <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{o.customer_name}</div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
-                      <button onClick={() => setEditOrder({...o})} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.textDim, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>✏️</button>
-                      <button onClick={() => deleteOrder(o)} style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(214,48,49,0.2)', background: 'rgba(214,48,49,0.04)', color: T.danger, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>🗑</button>
-                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
                   </div>
                   <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} · 👤 {o.employee_name || profiles.find(p=>p.id===o.employee_id)?.full_name || '—'}</div>
                   <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>🕐 {fmtDateTime(o.created_at)}</div>
                   {o.remark && <div style={{ fontSize: 11, color: T.textDim }}>💬 {o.remark}</div>}
                   {o.slip_url && <a href={o.slip_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(45,138,78,0.06)', border: '1px solid rgba(45,138,78,0.15)', fontSize: 11, color: T.success, fontWeight: 600, textDecoration: 'none' }}>🧾 ดูสลิป</a>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+                    <button onClick={() => setEditOrder({...o})} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.gold, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: T.font }}>✏️ แก้ไข</button>
+                    <button onClick={() => deleteOrder(o)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid rgba(214,48,49,0.2)', background: 'rgba(214,48,49,0.04)', color: T.danger, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: T.font }}>🗑 ลบ</button>
+                  </div>
                 </div>
               ))}
               {displayOrders.length === 0 && <Empty text="เลือกวันที่เพื่อดูรายงาน" />}
