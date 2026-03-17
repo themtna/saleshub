@@ -416,11 +416,16 @@ export default function ManagerApp({ profile, onLogout }) {
                       </span>
                       <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{o.customer_name}</div>
                     </div>
-                    <div style={{ textAlign: 'right' }}><div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: T.success }}>฿{fmt(parseFloat(o.sale_price)||0)}</div>
+                      <button onClick={() => setEditOrder({...o})} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surfaceAlt, color: T.textDim, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>✏️</button>
+                      <button onClick={() => deleteOrder(o)} style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(214,48,49,0.2)', background: 'rgba(214,48,49,0.04)', color: T.danger, fontSize: 10, cursor: 'pointer', fontFamily: T.font }}>🗑</button>
+                    </div>
                   </div>
                   <div style={{ fontSize: 11, color: T.textDim }}>📱 {o.customer_phone} · 📍 {o.district||'—'} · 👤 {o.employee_name || profiles.find(p=>p.id===o.employee_id)?.full_name || '—'}</div>
                   <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>🕐 {fmtDateTime(o.created_at)}</div>
                   {o.remark && <div style={{ fontSize: 11, color: T.textDim }}>💬 {o.remark}</div>}
+                  {o.slip_url && <a href={o.slip_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(45,138,78,0.06)', border: '1px solid rgba(45,138,78,0.15)', fontSize: 11, color: T.success, fontWeight: 600, textDecoration: 'none' }}>🧾 ดูสลิป</a>}
                 </div>
               ))}
               {displayOrders.length === 0 && <Empty text="เลือกวันที่เพื่อดูรายงาน" />}

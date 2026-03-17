@@ -92,8 +92,8 @@ function parseSmartPaste(text, addressData = []) {
     }
   }
 
-  // 9. ชื่อ
-  const skipRe = /\d{3,}|ม\.|ต\.|ตำบล|อ\.|อำเภอ|จ\.|จังหวัด|COD|FB|^P:|^R\d|^@|Line:|หมู่|ซอย|ถนน|บ้านเลขที่|โทร/i
+  // 9. ชื่อ — จับบรรทัดแรกที่เป็นชื่อคนไทย
+  const skipRe = /\d{3,}|ม\.\d|ต\.|ตำบล|อำเภอ|จ\.|จังหวัด|^COD|^FB|^P:|^R\d|^@|^Line|หมู่|ซอย|ถนน|บ้านเลขที่|^โทร/i
 
   // 9a. บรรทัด ชื่อ.xxx
   for (const line of fixedLines) {
@@ -101,14 +101,25 @@ function parseSmartPaste(text, addressData = []) {
     if (nameM) { result.customerName = nameM[1].trim(); break }
   }
 
-  // 9b. ชื่อ+ที่อยู่บรรทัดเดียว
+  // 9b. บรรทัดแรกที่เป็นชื่อล้วน (ไม่มีตัวเลข ไม่มี keyword)
+  if (!result.customerName) {
+    for (const line of fixedLines) {
+      if (/^@|^FB|^P:|^R\d|^Line|^COD|^โทร|^ชื่อ/i.test(line)) continue
+      if (line.length >= 3 && line.length <= 50 && !skipRe.test(line) && /[ก-๙]/.test(line) && !/\d{5}/.test(line)) {
+        result.customerName = line.trim()
+        break
+      }
+    }
+  }
+
+  // 9c. ชื่อ+ที่อยู่บรรทัดเดียว
   if (!result.customerName) {
     for (const line of fixedLines) {
       if (/^@|^FB|^P:|^R\d|^Line|^COD|^โทร|^ชื่อ/i.test(line)) continue
       const split = line.match(/^([ก-๙ะ-์\s]{4,40}?)\s+(\d.+)/)
       if (split) {
         const n = split[1].trim()
-        if (n.length >= 3 && !/ต\.|อ\.|จ\.|ม\.|หมู่|ซอย|ถนน|บ้าน/.test(n)) {
+        if (n.length >= 3 && !/ต\.|อ\.|จ\.|ม\.\d|หมู่|ซอย|ถนน|บ้าน/.test(n)) {
           result.customerName = n
           let addr = split[2].trim()
           if (result.subDistrict) addr = addr.replace(new RegExp('(?:ต\\.|ตำบล)\\s*' + result.subDistrict, 'g'), '')
@@ -117,15 +128,6 @@ function parseSmartPaste(text, addressData = []) {
           if (addr.length >= 3 && !result.customerAddress) result.customerAddress = addr
           break
         }
-      }
-    }
-  }
-
-  // 9c. บรรทัดแรกที่เป็นชื่อล้วน
-  if (!result.customerName) {
-    for (const line of fixedLines) {
-      if (line.length >= 3 && line.length <= 50 && !skipRe.test(line) && /[ก-๙]/.test(line) && !/\d{5}/.test(line)) {
-        result.customerName = line.replace(/^ชื่อ[.\s:]+/i, '').trim(); break
       }
     }
   }
