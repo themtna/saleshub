@@ -92,7 +92,7 @@ function parseSmartPaste(text, addressData = []) {
     }
   }
 
-  // 9. ชื่อ — จับบรรทัดแรกที่เป็นชื่อคนไทย
+  // 9. ชื่อ — จับบรรทัดแรกที่เป็นชื่อ (ไทย/อังกฤษ)
   const skipRe = /\d{3,}|ม\.\d|ต\.|ตำบล|อำเภอ|จ\.|จังหวัด|^COD|^FB|^P:|^R\d|^@|^Line|หมู่|ซอย|ถนน|บ้านเลขที่|^โทร/i
 
   // 9a. บรรทัด ชื่อ.xxx
@@ -101,22 +101,24 @@ function parseSmartPaste(text, addressData = []) {
     if (nameM) { result.customerName = nameM[1].trim(); break }
   }
 
-  // 9b. บรรทัดแรกที่เป็นชื่อล้วน (ไม่มีตัวเลข ไม่มี keyword)
+  // 9b. บรรทัดแรกที่เป็นชื่อล้วน (ไทย หรือ อังกฤษ ไม่มีตัวเลข ไม่มี keyword)
   if (!result.customerName) {
     for (const line of fixedLines) {
       if (/^@|^FB|^P:|^R\d|^Line|^COD|^โทร|^ชื่อ/i.test(line)) continue
-      if (line.length >= 3 && line.length <= 50 && !skipRe.test(line) && /[ก-๙]/.test(line) && !/\d{5}/.test(line)) {
+      // ชื่อไทย หรือ ชื่ออังกฤษ (มีตัวอักษรอย่างน้อย 3 ตัว ไม่มีเลข 3+ หลัก)
+      const isName = line.length >= 3 && line.length <= 60 && !skipRe.test(line) && !/\d{5}/.test(line) && (/[ก-๙]/.test(line) || /^[A-Za-z\s'.]+$/.test(line))
+      if (isName) {
         result.customerName = line.trim()
         break
       }
     }
   }
 
-  // 9c. ชื่อ+ที่อยู่บรรทัดเดียว
+  // 9c. ชื่อ+ที่อยู่บรรทัดเดียว (ไทย/อังกฤษ + ตัวเลข)
   if (!result.customerName) {
     for (const line of fixedLines) {
       if (/^@|^FB|^P:|^R\d|^Line|^COD|^โทร|^ชื่อ/i.test(line)) continue
-      const split = line.match(/^([ก-๙ะ-์\s]{4,40}?)\s+(\d.+)/)
+      const split = line.match(/^([ก-๙ะ-์A-Za-z'\s]{3,40}?)\s+(\d.+)/)
       if (split) {
         const n = split[1].trim()
         if (n.length >= 3 && !/ต\.|อ\.|จ\.|ม\.\d|หมู่|ซอย|ถนน|บ้าน/.test(n)) {
